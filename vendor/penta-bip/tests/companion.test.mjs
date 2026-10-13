@@ -15,7 +15,7 @@ test('Zepp fetch uses one options object, parses body and does not repeat a fail
   const calls = []
   const client = createPCClient(async options => {
     calls.push(options)
-    if (options.method === 'GET') return { body: JSON.stringify({ status: 'ok', app: 'Penteye' }) }
+    if (options.method === 'GET') return { body: JSON.stringify({ status: 'ok', app: 'PentaKuru' }) }
     throw new Error('connection lost after write')
   }, () => ['http://pc'], promise => promise)
   await assert.rejects(client.request('/api/notes', { method: 'POST', body: '{"content":"hello"}' }), /connection lost/)
@@ -69,7 +69,7 @@ test('phone bridge reassembles BLE chunks and rejects missing or reordered chunk
     BaseSideService: x => x, AppSideService: x => definition = x,
     createPCClient, settingUrl, DEFAULT_URLS, MAX_AUDIO_BYTES,
     fetch: async options => {
-      if (options.method === 'GET') return { body: { status: 'ok', app: 'Penteye' } }
+      if (options.method === 'GET') return { body: { status: 'ok', app: 'PentaKuru' } }
       writes++; uploaded = JSON.parse(options.body)
       return { body: { status: 'ok', text: 'hello' } }
     }
@@ -220,7 +220,7 @@ test('Windows phone bridge requires pairing and keeps credentials off GET status
   vm.runInNewContext(readFileSync(new URL('../app-side/index.js', import.meta.url), 'utf8').replace(/^import .*$/gm, ''), {
     BaseSideService: x => x, AppSideService: x => definition = x,
     createPCClient, settingUrl, DEFAULT_URLS, MAX_AUDIO_BYTES,
-    fetch: async options => { if (options.method === 'GET') { assert.equal(options.body, undefined); return { body: { status: 'ok', app: 'Penteye' } } }
+    fetch: async options => { if (options.method === 'GET') { assert.equal(options.body, undefined); return { body: { status: 'ok', app: 'PentaKuru' } } }
       writes.push({ path: options.url, body: JSON.parse(options.body) }); return { body: { status: 'ok', task: { id: 'test', phase: 'pending' } } } }
   })
   const service = { ...definition, settings: { getItem: name => name === 'control_key' ? key : null } }
