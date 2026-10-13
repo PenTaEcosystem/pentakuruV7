@@ -36,10 +36,12 @@ impl Action {
         }
     }
 
+    #[cfg(any(target_os = "windows", test))]
     fn id(self) -> i32 {
         Action::ALL.iter().position(|a| *a == self).unwrap_or(0) as i32 + 1
     }
 
+    #[cfg(any(target_os = "windows", test))]
     fn from_id(id: i32) -> Option<Self> {
         Action::ALL.get(usize::try_from(id - 1).ok()?).copied()
     }
@@ -290,6 +292,13 @@ pub fn vk(key: Key) -> Option<u16> {
     })
 }
 
+#[cfg_attr(
+    not(target_os = "windows"),
+    expect(
+        dead_code,
+        reason = "Only the Win32 global hotkey backend produces these shared UI events"
+    )
+)]
 pub enum HotkeyEvent {
     Pressed(Action, isize),
     /// Registration result per action (`Err` holds a readable reason).

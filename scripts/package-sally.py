@@ -33,7 +33,7 @@ source_roots = ["src", "assets", "scripts", "docs", "vendor/Sally/src",
                 "vendor/penta-bip/app-side", "vendor/penta-bip/common", "vendor/penta-bip/page",
                 "vendor/penta-bip/setting", "vendor/penta-bip/assets", "vendor/penta-bip/watchface",
                 "vendor/penta-bip/tests"]
-source_files = notices + ["Cargo.toml", "Cargo.lock", "build.rs", ".gitignore",
+source_files = notices + ["Cargo.toml", "Cargo.lock", "build.rs", ".gitignore", ".gitattributes", "rust-toolchain.toml",
     "vendor/Sally/LICENSE", "vendor/Sally/README.md", "vendor/Sally/.env.example",
     "vendor/Sally/package.json", "vendor/Sally/package-lock.json",
     "vendor/Sally/index.html", "vendor/Sally/tsconfig.json", "vendor/Sally/vite.config.ts",

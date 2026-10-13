@@ -197,8 +197,10 @@ pub fn parse_server_message(value: &Value) -> Vec<LiveEvent> {
                 if let Some(data) = part.pointer("/inlineData/data").and_then(Value::as_str) {
                     if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) {
                         let samples: Vec<i16> = bytes
-                            .chunks_exact(2)
-                            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|b| i16::from_le_bytes(*b))
                             .collect();
                         if !samples.is_empty() {
                             events.push(LiveEvent::Audio(samples));

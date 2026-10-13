@@ -58,6 +58,7 @@ impl PentaKuru {
                     }
                     self.office.status = messages.join("\n");
                 }
+                #[cfg(windows)]
                 Ok(office::ResultItem::Installed(message)) => self.office.status = message,
                 Err(error) => self.office.status = error,
             }

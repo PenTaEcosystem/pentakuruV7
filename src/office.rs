@@ -104,6 +104,7 @@ pub enum ResultItem {
     Opened(File, bool),
     Updated(Vec<(PathBuf, bool, String)>),
     Labeled(Vec<File>),
+    #[cfg(windows)]
     Installed(String),
 }
 pub struct State {
@@ -303,7 +304,7 @@ pub fn program(settings: &Settings) -> Option<PathBuf> {
 pub fn install() -> Result<ResultItem, String> {
     #[cfg(not(windows))]
     {
-        return Err("Bộ cài tự động hiện hỗ trợ Windows x64.".into());
+        Err("Bộ cài tự động hiện hỗ trợ Windows x64.".into())
     }
     #[cfg(windows)]
     {

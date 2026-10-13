@@ -18,3 +18,5 @@ macOS: gói .dmg và .tar.gz chứa PentaKuru.app. Bundle được ký ad-hoc đ
 Windows: gói ZIP chứa EXE; bộ cài Inno Setup được build riêng bằng scripts/package-installer.ps1.
 
 Build thành công chỉ xác nhận biên dịch, kiểm tra tự động và đóng gói. Chưa có kiểm tra sử dụng thực tế Linux/macOS và chưa cam kết mọi tiện ích ngang với Windows.
+
+CI và local cố định Rust 1.96.0 qua rust-toolchain.toml. Kiểm tra Clippy vẫn giữ -D warnings trên cả ba hệ điều hành.

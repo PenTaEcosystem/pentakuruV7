@@ -107,7 +107,6 @@ impl AudioCaptureService {
         let speaker_level_arc = self.speaker_level.clone();
         let tx_spk = tx_chunks;
 
-        #[cfg(target_os = "windows")]
         let spk_dev = if let Some(ref name) = speaker_name {
             host.output_devices()
                 .ok()
@@ -116,9 +115,6 @@ impl AudioCaptureService {
         } else {
             host.default_output_device()
         };
-
-        #[cfg(not(target_os = "windows"))]
-        let spk_dev = host.default_output_device();
 
         if let Some(device) = spk_dev {
             std::thread::spawn(move || {
