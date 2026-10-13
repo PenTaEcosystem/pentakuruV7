@@ -1,0 +1,262 @@
+{
+  "Date": "2026-10-13",
+  "Scope": "C:\\Users\\gooleseswsq1\\Desktop\\AI momdal\\dist",
+  "Kept": [
+    "Penteye-Watch-Compact.exe",
+    "Penteye-Watch-Compact-Windows-x64.zip",
+    "Penteye-Watch-Compact-Source.zip",
+    "Penteye-Watch-1.2.3.zab"
+  ],
+  "Entries": [
+    {
+      "Name": "Penteye-Clock-Live-Source.zip",
+      "Bytes": 45612,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Clock-Live-Windows-x64.zip",
+      "Bytes": 5584200,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Clock-Live.exe",
+      "Bytes": 12629504,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Clock-Source.zip",
+      "Bytes": 43746,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Clock-Windows-x64.zip",
+      "Bytes": 3926730,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Clock.exe",
+      "Bytes": 9053184,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Mini-Source.zip",
+      "Bytes": 36909,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Mini-Windows-x64.zip",
+      "Bytes": 3909075,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Mini.exe",
+      "Bytes": 9004032,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-Audio-Fix-Source.zip",
+      "Bytes": 930238,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-Audio-Fix-Windows-x64.zip",
+      "Bytes": 10453458,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-Audio-Fix.exe",
+      "Bytes": 29033984,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-Full-Source.zip",
+      "Bytes": 927125,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-Full-Windows-x64.zip",
+      "Bytes": 10414775,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-Full.exe",
+      "Bytes": 28907520,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-No-Loop-Source.zip",
+      "Bytes": 932910,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-No-Loop-Windows-x64.zip",
+      "Bytes": 10444435,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Sally-No-Loop.exe",
+      "Bytes": 29015040,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Source.zip",
+      "Bytes": 35555,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-ChatFix-Windows-x64.zip",
+      "Bytes": 5839098,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-ChatFix.exe",
+      "Bytes": 13343232,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-Motion-Source.zip",
+      "Bytes": 384154,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-Motion-Windows-x64.zip",
+      "Bytes": 5828758,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-Motion.exe",
+      "Bytes": 13319168,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-RunToDone-Windows-x64.zip",
+      "Bytes": 5837039,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-RunToDone.exe",
+      "Bytes": 13335552,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-Source.zip",
+      "Bytes": 374465,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio-Windows-x64.zip",
+      "Bytes": 5418125,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Studio.exe",
+      "Bytes": 12617216,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-1.1.0-Source.zip",
+      "Bytes": 80984,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-1.1.0.zab",
+      "Bytes": 166922,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-1.1.1.zab",
+      "Bytes": 169317,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-1.1.2.zab",
+      "Bytes": 175766,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-1.2.0.zab",
+      "Bytes": 249313,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-1.2.1.zab",
+      "Bytes": 252749,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-1.2.2.zab",
+      "Bytes": 279088,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Chat-Windows-Source.zip",
+      "Bytes": 1084938,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Chat-Windows-Windows-x64.zip",
+      "Bytes": 10735339,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Chat-Windows.exe",
+      "Bytes": 29138944,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Input-Fix-Source.zip",
+      "Bytes": 1098026,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Input-Fix-Windows-x64.zip",
+      "Bytes": 10764444,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Input-Fix.exe",
+      "Bytes": 29138944,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Integrated-Source.zip",
+      "Bytes": 1023584,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Integrated-Windows-x64.zip",
+      "Bytes": 10636897,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Integrated.exe",
+      "Bytes": 29099008,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Notes-Fix-Source.zip",
+      "Bytes": 1030805,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Notes-Fix-Windows-x64.zip",
+      "Bytes": 10648564,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Watch-Notes-Fix.exe",
+      "Bytes": 29096960,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "Penteye-Windows-x64.zip",
+      "Bytes": 3906544,
+      "Status": "Deleted"
+    },
+    {
+      "Name": "penteye.exe",
+      "Bytes": 13235712,
+      "Status": "Deleted"
+    }
+  ]
+}

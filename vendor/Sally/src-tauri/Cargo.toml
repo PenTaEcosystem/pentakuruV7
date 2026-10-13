@@ -1,0 +1,65 @@
+[package]
+name = "sally"
+version = "1.5.0"
+edition = "2021"
+description = "Floating live translation and transcription for meetings"
+license = "GPL-3.0-only"
+
+[lib]
+name = "sally_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+embedded = []
+
+[dependencies]
+# macos-private-api: window transparency on macOS (transparency slider).
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+cpal = "0.15"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+log = "0.4"
+env_logger = "0.11"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Native system-audio capture (no BlackHole). Swift bridge builds with the
+# Xcode toolchain present on macOS runners; not compiled on other targets.
+screencapturekit = "8"
+# Core Audio process taps (macOS 14.4+): the newer, entitlement-only path
+# that doesn't need Screen Recording permission. No high-level Rust wrapper
+# exists for this API yet, so coreaudio_tap.rs is hand-written FFI against
+# these raw generated bindings.
+objc2 = "0.6"
+objc2-core-audio = { version = "0.3", features = ["AudioHardware", "objc2", "objc2-foundation", "objc2-core-audio-types"] }
+objc2-core-audio-types = "0.3"
+objc2-core-foundation = "0.3"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSObject", "NSString", "NSUUID"] }
+
+[target.'cfg(windows)'.dependencies]
+# Per-app audio capture: WASAPI process loopback + session enumeration.
+wasapi = "0.19"
+webview2-com = "0.39.1"
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Com",
+    "Win32_Media_Audio",
+] }
+
+# Release settings and unwind behavior are inherited from the Penteye workspace.
+

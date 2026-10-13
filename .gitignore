@@ -1,0 +1,23 @@
+/target/
+/.build/
+/dist/
+*.log
+
+
+/bin/
+**/node_modules/
+**/target/
+**/dist/
+**/.git/
+**/__pycache__/
+**/.env
+**/.env.*
+!**/.env.example
+/Penteye Notes/
+/PentaKuru Notes/
+/ui_tars/
+*.exe
+*.zab
+*.zip
+*.pfx
+*.pem

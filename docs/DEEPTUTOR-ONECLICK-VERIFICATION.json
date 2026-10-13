@@ -1,0 +1,23 @@
+{
+  "rust_tests": 50,
+  "strict_clippy": "passed",
+  "native_runtime": {
+    "catalog_status": 200,
+    "credentials_used": false,
+    "listeners": [
+      "127.0.0.1:4898",
+      "127.0.0.1:4899"
+    ],
+    "missing_api_key_does_not_block_installation": true,
+    "no_inbound_firewall_rule_added": true,
+    "passed": true,
+    "private_python_and_node": true
+  },
+  "python_environment_isolated_test": "passed",
+  "dependency_constraints": 166,
+  "icon": "black pentagon with white outline",
+  "exe_icon_extracted_and_visually_verified": true,
+  "application_sha256": "e2c7339572bfd6d6be0414027ee314af59d6af23e7bacfdb49dd95bbde6ed572",
+  "installer_sha256": "b23166605894a0c12581f6da088ee29df0d79427266dcfa442a4f70e0aeae532",
+  "real_ai_calls_tested": false
+}

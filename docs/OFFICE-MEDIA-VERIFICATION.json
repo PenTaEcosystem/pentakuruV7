@@ -1,0 +1,76 @@
+{
+  "release": "PentaEye-Office-Media",
+  "rust_tests": 50,
+  "strict_clippy": "passed",
+  "web": {
+    "passed": true,
+    "report": {
+      "clip": {
+        "document_width": 465,
+        "origin": "https://clip.pentasys.id.vn",
+        "ready": true,
+        "search": true,
+        "web": true,
+        "width": 480
+      },
+      "interaction": {
+        "focused": true,
+        "visible": true
+      },
+      "music": {
+        "audio": true,
+        "background": "rgb(23, 23, 25)",
+        "document_width": 480,
+        "native_login": true,
+        "origin": "https://music.pentasys.id.vn",
+        "search": true,
+        "web": true,
+        "width": 480
+      },
+      "no_credentials_used": true
+    }
+  },
+  "office": {
+    "sample.docx": {
+      "visible_open": true,
+      "edit": true,
+      "undo": true,
+      "style": true,
+      "image_alignment_undo": true,
+      "save_reopen": true,
+      "stale_revision_rejected": true
+    },
+    "sample.pptx": {
+      "visible_open": true,
+      "edit": true,
+      "undo": true,
+      "style": true,
+      "image_alignment_undo": true,
+      "save_reopen": true,
+      "stale_revision_rejected": true
+    }
+  },
+  "deeptutor": {
+    "passed": true,
+    "credentials_used": false,
+    "frontend_status": 200,
+    "frontend_html_bytes": 23284,
+    "catalog_api": 200,
+    "catalog_has_services": true
+  },
+  "real_credentials_used": false,
+  "automatic_libreoffice_download_tested": false,
+  "exe_sha256": "e2c7339572bfd6d6be0414027ee314af59d6af23e7bacfdb49dd95bbde6ed572",
+  "deeptutor_oneclick": {
+    "catalog_status": 200,
+    "credentials_used": false,
+    "listeners": [
+      "127.0.0.1:4898",
+      "127.0.0.1:4899"
+    ],
+    "missing_api_key_does_not_block_installation": true,
+    "no_inbound_firewall_rule_added": true,
+    "passed": true,
+    "private_python_and_node": true
+  }
+}

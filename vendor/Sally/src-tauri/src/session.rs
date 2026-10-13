@@ -1,0 +1,937 @@
+//! Meeting session orchestrator (design §5).
+//!
+//! Owns capture, pipeline, the Gemini Live connection, the timeline
+//! assembler, and the meeting store for one meeting. Communicates with the
+//! UI through Tauri events and with commands through a control channel. The
+//! session clock is a monotonic `Instant` (design §5).
+
+use crate::audio::{
+    capture, capture::MicCapture, pipeline::Pipeline, playback::Player, recorder::WavRecorder,
+    AudioSource, RawFrame,
+};
+use crate::config::AppConfig;
+use crate::error::{Result, SallyError};
+use crate::gemini::live::{self, LiveEvent};
+use crate::store::{MeetingStore, RecoveryJournal};
+use crate::timeline::Assembler;
+use serde::Serialize;
+use serde_json::json;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter};
+use tokio::sync::{mpsc, oneshot};
+
+/// Gaps shorter than this after a reconnect are not marked (noise).
+const GAP_MARK_THRESHOLD_MS: u64 = 2_000;
+/// Reconnect backoff: 1s doubling to this cap, retried while the meeting
+/// runs (bounded exponential backoff, design §11).
+const MAX_BACKOFF: Duration = Duration::from_secs(30);
+/// Journal snapshot cadence.
+const JOURNAL_INTERVAL: Duration = Duration::from_secs(5);
+/// A turn left open this long without new fragments is force-finalized so
+/// panels do not accumulate an ever-growing provisional entry.
+const TURN_IDLE_FLUSH_MS: u64 = 7_000;
+/// A speaker-change boundary only splits an entry that already carries this
+/// much original text; anything shorter reads fine on one line.
+const MIN_SPLIT_CHARS: usize = 12;
+/// A turn open this long without a speaker-change or model turn-complete
+/// boundary is split anyway, so one uninterrupted speaker never accumulates
+/// an unreadably long block ("split every minute").
+const MAX_TURN_DURATION_MS: u64 = 60_000;
+/// Fixed grace window, from the moment a closing entry is created, before
+/// it's drained (sealed) on its own regardless of whether translation is
+/// still streaming in. Client-side rotation triggers (split-line-count,
+/// language-change, long-turn-duration) defer instead of rotating again
+/// while a closing entry is still within this window, so a fast rotation
+/// cadence (e.g. `SALLY_SPLIT_LINE_COUNT=1`) can't seal a closing entry's
+/// translation mid-stream and misroute the rest of it into the wrong
+/// (newer) entry. Critically, the window is fixed at creation, not reset
+/// by ongoing translation activity — a passage that keeps streaming in for
+/// many seconds must not be able to push the deadline back indefinitely
+/// and freeze every later rotation.
+///
+/// Tightened from 3000ms (design note: translation lags the original by "a
+/// couple of seconds," so 3000 was chosen as a bit longer than that lag).
+/// Field report: for continuous speech, every `split_line_count` rotation
+/// beyond the first was deferred until this window cleared, so multiple
+/// completed sentences piled up into one growing block instead of each
+/// getting its own line — the deferral, not the split trigger itself, was
+/// the bottleneck. Shortened so lines finalize (and split) closer to real
+/// time; `timeline.rs`'s sentence-punctuation carry-over (added alongside
+/// this) already reduces the cost of sealing before translation fully
+/// catches up, by moving any trailing partial-sentence overflow onto the
+/// next line instead of losing or corrupting it. Translation that hasn't
+/// streamed in AT ALL yet when the window closes still has nowhere better
+/// to go and lands on the next line instead — accepted trade-off for
+/// snappier splitting on fast/continuous speech.
+const CLOSING_DRAIN_GRACE_MS: u64 = 1_000;
+/// No microphone frames for this long (while not paused) means the device
+/// disconnected — prompt the user to pick a new one instead of silently
+/// translating with a permanently-padded mic lane forever.
+const MIC_LIVENESS_TIMEOUT: Duration = Duration::from_secs(3);
+
+pub enum Control {
+    Pause,
+    Resume,
+    Stop,
+    /// Toggle translated-voice readout mid-meeting.
+    SetReadout(bool),
+    /// Change readout volume (0.0–1.0) mid-meeting.
+    SetReadoutVolume(f32),
+    /// Restart mic capture on a different device (e.g. after the previous
+    /// one disconnected), without touching system-audio capture.
+    SwitchMic(String),
+    /// Restart system/app-audio capture with a different captured app
+    /// (empty = whole system), e.g. after the user changes it in Settings
+    /// mid-meeting, without touching mic capture.
+    SwitchCaptureApp(String),
+    /// Release/reopen the microphone and acknowledge the actual device state.
+    SetMicMuted(bool, oneshot::Sender<Result<()>>),
+}
+
+/// Returned to the command layer when the meeting ends.
+pub struct ReviewData {
+    pub store: MeetingStore,
+}
+
+pub struct SessionHandle {
+    pub control_tx: mpsc::Sender<Control>,
+    pub done_rx: Option<oneshot::Receiver<Result<ReviewData>>>,
+}
+
+#[derive(Serialize, Clone)]
+struct StatusPayload {
+    state: String,
+    detail: String,
+}
+
+fn emit_status(app: &AppHandle, state: &str, detail: &str) {
+    let _ = app.emit(
+        "sally://status",
+        StatusPayload {
+            state: state.into(),
+            detail: detail.into(),
+        },
+    );
+}
+
+pub fn start(app: AppHandle, config: AppConfig, mic_muted: bool) -> Result<SessionHandle> {
+    if config.api_key.trim().is_empty() {
+        return Err(SallyError::Config(
+            "missing Gemini API key; finish setup first".into(),
+        ));
+    }
+    let store = MeetingStore::create(
+        config.meetings_dir(),
+        config.recovery_dir(),
+        chrono::Local::now(),
+        &config.target_language,
+    )?;
+
+    let session_start = Instant::now();
+    let (frame_tx, frame_rx) = mpsc::channel::<RawFrame>(256);
+    let (mic_capture, capture_handle) = capture::start_capture(
+        &config.mic_device,
+        mic_muted,
+        &config.system_device,
+        &config.capture_app,
+        &config.mac_capture_method,
+        session_start,
+        frame_tx.clone(),
+    )?;
+    if !config.capture_app.is_empty() && !capture_handle.app_capture_active {
+        let _ = app.emit(
+            "sally://warning",
+            format!(
+                "'{}' has no active audio session — capturing the entire system instead. \
+                 Start audio in that app and restart the meeting to capture it alone.",
+                config.capture_app
+            ),
+        );
+    }
+
+    let (control_tx, control_rx) = mpsc::channel::<Control>(8);
+    let (done_tx, done_rx) = oneshot::channel::<Result<ReviewData>>();
+
+    tokio::spawn(run_session(
+        app,
+        config,
+        store,
+        frame_rx,
+        control_rx,
+        done_tx,
+        capture_handle,
+        mic_capture,
+        frame_tx,
+        session_start,
+        mic_muted,
+    ));
+
+    Ok(SessionHandle {
+        control_tx,
+        done_rx: Some(done_rx),
+    })
+}
+
+/// Spawn a background task that keeps trying to connect (bounded backoff)
+/// until it succeeds or the session ends, then delivers the connection.
+/// `initial_delay` escalates across attempts in the orchestrator so a server
+/// that accepts the socket but rejects setup (close right after connect)
+/// cannot cause rapid live/reconnecting flapping.
+fn spawn_reconnect(
+    app: AppHandle,
+    config: AppConfig,
+    alive: Arc<AtomicBool>,
+    api_version: String,
+    initial_delay: Duration,
+) -> oneshot::Receiver<live::LiveConnection> {
+    let (tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        tokio::time::sleep(initial_delay).await;
+        let mut backoff = Duration::from_secs(1);
+        loop {
+            if !alive.load(Ordering::SeqCst) {
+                return;
+            }
+            match live::connect(
+                &config.api_key,
+                &config.live_model,
+                &config.target_language,
+                &api_version,
+            )
+            .await
+            {
+                Ok(conn) => {
+                    let _ = tx.send(conn);
+                    return;
+                }
+                Err(e) => {
+                    emit_status(&app, "reconnecting", &e.to_string());
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                }
+            }
+        }
+    });
+    rx
+}
+
+/// All per-meeting state shared across the control/frame/live-event
+/// handling below. Bundled into one struct (rather than ~25 loose locals in
+/// `run_session`) so the frame- and live-event-handling logic can be moved
+/// into named methods instead of living inline in two very large
+/// `tokio::select!` arms.
+struct Meeting {
+    app: AppHandle,
+    config: AppConfig,
+    store: MeetingStore,
+    pipeline: Pipeline,
+    assembler: Assembler,
+    /// Full meeting timeline kept in memory for the end-of-meeting speaker
+    /// list and review data.
+    sealed_entries: Vec<crate::timeline::TimelineEntry>,
+    paused: bool,
+    last_chunk_ms: u64,
+    last_fragment_ms: u64,
+    /// Readout: translated audio plays for every remote (Meeting) passage,
+    /// regardless of source language — including source == target, so a
+    /// Vietnamese-to-Vietnamese "translation" is dubbed same as any other.
+    /// Mic (You) speech is never read back; it only ever reaches the raw
+    /// transcript.
+    readout_enabled: bool,
+    readout_safe: bool,
+    readout_volume: f32,
+    player: Option<Player>,
+    recorder: Option<WavRecorder>,
+    /// Language of the currently open entry's original text, for splitting
+    /// when the spoken language changes mid-stream. Only script-detectable
+    /// languages participate (Latin-only text stays None and never splits).
+    open_lang: Option<&'static str>,
+    /// Set for the rest of a turn once Gemini's output shows a degenerate
+    /// repetition loop (model-side failure, most often when the target is
+    /// Vietnamese) — muting readout for the remainder of the turn avoids
+    /// playing back the garbled/looping audio that goes with it. Reset at
+    /// every turn boundary alongside `open_lang`.
+    repeat_loop_muted: bool,
+    conn: Option<live::LiveConnection>,
+    api_version: String,
+    reconnect_delay: Duration,
+    connected_at: Option<Instant>,
+    early_closes: u32,
+    reconnect_rx: Option<oneshot::Receiver<live::LiveConnection>>,
+    gap_start_ms: Option<u64>,
+    alive: Arc<AtomicBool>,
+    /// Mic capture's own lifecycle, independent of `capture_handle` (system
+    /// audio) — restarted in place on `Control::SwitchMic` without
+    /// affecting system-audio capture at all.
+    mic_capture: MicCapture,
+    /// Clone kept for respawning the mic thread on `Control::SwitchMic`;
+    /// the original passed to `capture::start_capture` was consumed there.
+    frame_tx: mpsc::Sender<RawFrame>,
+    /// Session clock origin, needed to timestamp frames from any mic
+    /// thread spawned after the first (`Control::SwitchMic`) the same way
+    /// as the original.
+    session_start: Instant,
+    /// Wall-clock moment a Microphone-source frame last arrived. Checked
+    /// against `MIC_LIVENESS_TIMEOUT` in `handle_frame` (which keeps
+    /// running off system-audio frames alone even once mic frames stop) to
+    /// detect a disconnected device.
+    last_mic_instant: Instant,
+    /// True once `sally://mic-lost` has been emitted for the current
+    /// disconnect, so the event doesn't fire repeatedly every frame; reset
+    /// when a mic frame arrives again (recovery) or `Control::SwitchMic`
+    /// succeeds.
+    mic_lost: bool,
+    /// Muted microphones own no stream; discard queued frames and skip liveness.
+    mic_muted: bool,
+}
+
+impl Meeting {
+    /// Process one raw audio frame from capture: mix/resample via the
+    /// pipeline, feed the recorder/split-detector/live connection, and run
+    /// the idle-turn-flush and long-turn-split checks. Only called when the
+    /// meeting isn't paused (the caller checks `paused` before this).
+    fn handle_frame(&mut self, frame: RawFrame) {
+        let source = frame.source;
+        if source == AudioSource::Microphone && self.mic_muted {
+            return;
+        }
+        self.pipeline.push(frame);
+        if source == AudioSource::Microphone {
+            self.last_mic_instant = Instant::now();
+            if self.mic_lost {
+                self.mic_lost = false;
+                let _ = self.app.emit("sally://mic-recovered", ());
+            }
+        } else if !self.mic_muted
+            && !self.mic_lost
+            && self.last_mic_instant.elapsed() > MIC_LIVENESS_TIMEOUT
+        {
+            // Checked on every frame (mic or system), so this still fires
+            // even once the mic lane has gone completely silent — system
+            // frames alone keep `handle_frame` running.
+            self.mic_lost = true;
+            let _ = self
+                .app
+                .emit("sally://mic-lost", self.mic_capture.device.clone());
+        }
+        while let Some(chunk) = self.pipeline.next_chunk() {
+            self.last_chunk_ms = chunk.t_ms;
+            let record_err = self
+                .recorder
+                .as_mut()
+                .and_then(|rec| rec.write(chunk.t_ms, &chunk.mixed).err());
+            if let Some(e) = record_err {
+                log::error!("meeting recording stopped: {e}");
+                let _ = self
+                    .app
+                    .emit("sally://warning", format!("Meeting recording stopped: {e}"));
+                self.recorder = None;
+            }
+            self.assembler
+                .push_activity(chunk.mic_active, chunk.system_active, chunk.t_ms);
+            if let Some(c) = self.conn.as_ref() {
+                // try_send: a stalled socket must not block audio.
+                if c.audio_tx.try_send(chunk.mixed).is_err() {
+                    log::warn!("live audio queue full; dropping chunk {}", chunk.seq);
+                }
+            }
+        }
+        if self.pipeline.take_drop_flag() {
+            log::warn!("audio buffer overflow; oldest audio dropped");
+        }
+        // A closing entry a rotation trigger deferred on (still within
+        // CLOSING_DRAIN_GRACE_MS when it fired) drains here once its
+        // translation has actually caught up.
+        if let Some(sealed) = self
+            .assembler
+            .drain_stale_closing(self.last_chunk_ms, CLOSING_DRAIN_GRACE_MS)
+        {
+            emit_sealed(
+                &self.app,
+                sealed,
+                &mut self.store,
+                &self.config,
+                &mut self.sealed_entries,
+            );
+        }
+        // Idle turn flush keeps provisional entries bounded.
+        if self.last_fragment_ms > 0
+            && self.last_chunk_ms.saturating_sub(self.last_fragment_ms) > TURN_IDLE_FLUSH_MS
+        {
+            finalize_entry(
+                &self.app,
+                &mut self.assembler,
+                &mut self.store,
+                &self.config,
+                &mut self.sealed_entries,
+            );
+            self.open_lang = None;
+            self.repeat_loop_muted = false;
+            self.last_fragment_ms = 0;
+        } else if !self.paused
+            && !self.assembler.has_closing()
+            && self.assembler.open_original_len() >= MIN_SPLIT_CHARS
+            && self
+                .assembler
+                .open_start_ms()
+                .map(|start| self.last_chunk_ms.saturating_sub(start) >= MAX_TURN_DURATION_MS)
+                .unwrap_or(false)
+        {
+            // Long uninterrupted turn: split on a time boundary the
+            // same way a speaker-change boundary would, so trailing
+            // translation can still land in the closing entry.
+            if let Some(sealed) = self.assembler.rotate_turn() {
+                emit_sealed(
+                    &self.app,
+                    sealed,
+                    &mut self.store,
+                    &self.config,
+                    &mut self.sealed_entries,
+                );
+            }
+            self.open_lang = None;
+            self.repeat_loop_muted = false;
+            emit_partial(&self.app, &self.assembler);
+        }
+    }
+
+    /// Process one event from the Gemini Live connection: transcription
+    /// fragments, translated-audio playback, turn boundaries, and
+    /// connection-lifecycle events (Ready / Closed / stream ended).
+    fn handle_live_event(&mut self, event: Option<LiveEvent>) {
+        match event {
+            Some(LiveEvent::Ready) => {
+                self.early_closes = 0;
+                self.reconnect_delay = Duration::ZERO;
+                if let Some(start) = self.gap_start_ms.take() {
+                    let now = self.last_chunk_ms.max(start);
+                    if now.saturating_sub(start) >= GAP_MARK_THRESHOLD_MS {
+                        let gap = self.assembler.gap(start, now);
+                        append_and_emit(&self.app, &mut self.store, &self.config, &gap);
+                        self.sealed_entries.push(gap);
+                    }
+                }
+                if !self.paused {
+                    emit_status(&self.app, "live", "");
+                }
+            }
+            Some(LiveEvent::Original(text)) => {
+                let frag_lang = crate::lang::detect(&text);
+                // Language changed mid-stream (e.g. Japanese hand-off
+                // to Vietnamese): split so each entry stays in one
+                // language. Latin-generic text detects as None and
+                // never triggers this.
+                if let (Some(f), Some(o)) = (frag_lang, self.open_lang) {
+                    if f != o
+                        && self.assembler.open_original_len() >= MIN_SPLIT_CHARS
+                        && !self.assembler.has_closing()
+                    {
+                        if let Some(sealed) = self.assembler.rotate_turn() {
+                            emit_sealed(
+                                &self.app,
+                                sealed,
+                                &mut self.store,
+                                &self.config,
+                                &mut self.sealed_entries,
+                            );
+                        }
+                    }
+                }
+                if frag_lang.is_some() {
+                    self.open_lang = frag_lang;
+                }
+                self.assembler.push_original(&text, self.last_chunk_ms);
+                if crate::lang::has_repeat_loop(self.assembler.open_original_text()) {
+                    self.repeat_loop_muted = true;
+                }
+                // Force a new line every `split_line_count` sentences,
+                // regardless of speaker, at whichever sentence boundary
+                // reaches it. 0 disables it.
+                if self.config.split_line_count > 0
+                    && self.assembler.open_ends_sentence()
+                    && self.assembler.open_sentence_count() >= self.config.split_line_count
+                    && !self.assembler.has_closing()
+                {
+                    if let Some(sealed) = self.assembler.rotate_turn() {
+                        emit_sealed(
+                            &self.app,
+                            sealed,
+                            &mut self.store,
+                            &self.config,
+                            &mut self.sealed_entries,
+                        );
+                    }
+                    self.open_lang = None;
+                    self.repeat_loop_muted = false;
+                }
+                self.last_fragment_ms = self.last_chunk_ms;
+                emit_partial(&self.app, &self.assembler);
+            }
+            Some(LiveEvent::Translated(text)) => {
+                self.assembler.push_translated(&text, self.last_chunk_ms);
+                if crate::lang::has_repeat_loop(self.assembler.active_translated_text()) {
+                    self.repeat_loop_muted = true;
+                }
+                self.last_fragment_ms = self.last_chunk_ms;
+                emit_partial(&self.app, &self.assembler);
+            }
+            Some(LiveEvent::Audio(samples)) => {
+                // Never read the user's own mic speech back to them
+                // translated — only remote (Meeting) turns qualify. Beyond
+                // that, no gating: Gemini translates every passage
+                // uniformly (echoTargetLanguage: true), so this plays
+                // regardless of source language, including source == target.
+                // The one exception: Gemini's live-translate model has a
+                // known failure mode where it gets stuck in a degenerate
+                // repetition loop (garbled/looping audio, sometimes with
+                // captured sound baked in) — most commonly reported when
+                // the target is Vietnamese. Once that shows up in either
+                // transcript stream, mute for the rest of the turn instead
+                // of playing the garbage back.
+                if self.readout_enabled
+                    && readout_is_safe(self.readout_safe, self.mic_muted)
+                    && !self.paused
+                    && !self.assembler.open_mic_dominated()
+                    && !self.repeat_loop_muted
+                {
+                    play(
+                        &mut self.player,
+                        &mut self.readout_enabled,
+                        &samples,
+                        self.readout_volume,
+                    );
+                }
+            }
+            Some(LiveEvent::TurnComplete) => {
+                // Rotate instead of sealing immediately: the entry
+                // stays open one more turn so trailing translation
+                // fragments can land in it.
+                if let Some(sealed) = self.assembler.rotate_turn() {
+                    emit_sealed(
+                        &self.app,
+                        sealed,
+                        &mut self.store,
+                        &self.config,
+                        &mut self.sealed_entries,
+                    );
+                }
+                self.open_lang = None;
+                self.repeat_loop_muted = false;
+                self.last_fragment_ms = 0;
+            }
+            other => {
+                // Closed event, or `None` when the reader task ended
+                // without a Close frame: reconnect and mark the gap.
+                let reason = match other {
+                    Some(LiveEvent::Closed(r)) => r,
+                    _ => "connection lost".to_string(),
+                };
+                log::warn!("live connection closed: {reason}");
+                self.conn = None;
+                if self.gap_start_ms.is_none() {
+                    self.gap_start_ms = Some(self.last_chunk_ms);
+                }
+                // A close shortly after connecting means setup was
+                // rejected, not a network drop. After three of those
+                // in a row, try the other API version — preview
+                // models move between v1alpha and v1beta.
+                let early = self
+                    .connected_at
+                    .map(|t| t.elapsed() < Duration::from_secs(5))
+                    .unwrap_or(false);
+                self.connected_at = None;
+                // 1007 schema errors ("Invalid JSON payload…Unknown
+                // name") mean this API version rejects our setup
+                // shape — flip immediately instead of after three
+                // tries.
+                let schema_reject =
+                    reason.contains("Unknown name") || reason.contains("Invalid JSON payload");
+                if early {
+                    self.early_closes += 1;
+                    if schema_reject || self.early_closes >= 3 {
+                        self.early_closes = 0;
+                        self.api_version = if self.api_version == "v1alpha" {
+                            "v1beta".into()
+                        } else {
+                            "v1alpha".into()
+                        };
+                        log::warn!(
+                            "live setup rejected; trying API version {}",
+                            self.api_version
+                        );
+                    }
+                }
+                self.reconnect_delay =
+                    (self.reconnect_delay * 2 + Duration::from_secs(1)).min(MAX_BACKOFF);
+                emit_status(&self.app, "reconnecting", &reason);
+                if self.reconnect_rx.is_none() {
+                    self.reconnect_rx = Some(spawn_reconnect(
+                        self.app.clone(),
+                        self.config.clone(),
+                        self.alive.clone(),
+                        self.api_version.clone(),
+                        self.reconnect_delay,
+                    ));
+                }
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_session(
+    app: AppHandle,
+    config: AppConfig,
+    store: MeetingStore,
+    mut frame_rx: mpsc::Receiver<RawFrame>,
+    mut control_rx: mpsc::Receiver<Control>,
+    done_tx: oneshot::Sender<Result<ReviewData>>,
+    mut capture_handle: capture::CaptureHandle,
+    mic_capture: MicCapture,
+    frame_tx: mpsc::Sender<RawFrame>,
+    session_start: Instant,
+    mic_muted: bool,
+) {
+    let mut journal_tick = tokio::time::interval(JOURNAL_INTERVAL);
+    let alive = Arc::new(AtomicBool::new(true));
+
+    // Optional local recording: mixed 16 kHz chunks streamed to a WAV whose
+    // positions line up with transcript timestamps. A recorder failure
+    // degrades to "no recording" with a warning — it never ends the meeting.
+    let recorder: Option<WavRecorder> = if config.save_audio {
+        match WavRecorder::create(&store.audio_path()) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                log::error!("meeting recording unavailable: {e}");
+                let _ = app.emit(
+                    "sally://warning",
+                    format!("Meeting recording unavailable: {e}"),
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    emit_status(&app, "connecting", "");
+    let api_version = config.live_api_version.clone();
+    let reconnect_delay = Duration::ZERO;
+    let reconnect_rx = Some(spawn_reconnect(
+        app.clone(),
+        config.clone(),
+        alive.clone(),
+        api_version.clone(),
+        reconnect_delay,
+    ));
+
+    let mut state = Meeting {
+        pipeline: Pipeline::new(),
+        assembler: Assembler::new(),
+        sealed_entries: Vec::new(),
+        paused: false,
+        last_chunk_ms: 0,
+        last_fragment_ms: 0,
+        readout_enabled: config.readout_enabled,
+        readout_safe: capture_handle.excludes_self,
+        readout_volume: config.readout_volume,
+        player: None,
+        recorder,
+        open_lang: None,
+        repeat_loop_muted: false,
+        conn: None,
+        api_version,
+        reconnect_delay,
+        connected_at: None,
+        early_closes: 0,
+        reconnect_rx,
+        gap_start_ms: None,
+        alive: alive.clone(),
+        mic_capture,
+        frame_tx,
+        session_start,
+        last_mic_instant: Instant::now(),
+        mic_lost: false,
+        mic_muted,
+        app,
+        config,
+        store,
+    };
+
+    loop {
+        tokio::select! {
+            // Control from the command layer.
+            ctrl = control_rx.recv() => {
+                match ctrl {
+                    Some(Control::Pause) => {
+                        state.paused = true;
+                        if let Some(p) = state.player.as_ref() {
+                            p.clear();
+                        }
+                        emit_status(&state.app, "paused", "");
+                    }
+                    Some(Control::Resume) => {
+                        state.paused = false;
+                        // Otherwise the elapsed pause counts toward the mic
+                        // liveness timeout and falsely flags a disconnect
+                        // the instant the first post-resume frame arrives.
+                        state.last_mic_instant = Instant::now();
+                        emit_status(&state.app, if state.conn.is_some() { "live" } else { "reconnecting" }, "");
+                    }
+                    Some(Control::SwitchMic(device)) => {
+                        state.config.mic_device = device.clone();
+                        state.mic_capture.stop();
+                        if state.mic_muted {
+                            state.mic_capture = MicCapture::muted(device);
+                            continue;
+                        }
+                        match capture::spawn_mic(device, state.session_start, state.frame_tx.clone()) {
+                            Ok(mc) => {
+                                state.mic_capture = mc;
+                                state.mic_lost = false;
+                                state.last_mic_instant = Instant::now();
+                                let _ = state.app.emit("sally://mic-recovered", ());
+                            }
+                            Err(e) => {
+                                let _ = state.app.emit(
+                                    "sally://warning",
+                                    format!("Couldn't switch microphone: {e}"),
+                                );
+                            }
+                        }
+                    }
+                    Some(Control::SwitchCaptureApp(app_name)) => {
+                        capture_handle.stop();
+                        state.config.capture_app = app_name.clone();
+                        match capture::spawn_system(
+                            &state.config.system_device,
+                            &app_name,
+                            &state.config.mac_capture_method,
+                            state.session_start,
+                            state.frame_tx.clone(),
+                        ) {
+                            Ok(handle) => {
+                                state.readout_safe = handle.excludes_self;
+                                if !state.readout_safe {
+                                    if let Some(player) = state.player.as_ref() { player.clear(); }
+                                    if state.readout_enabled { warn_readout_feedback(&state.app); }
+                                }
+                                if !app_name.is_empty() && !handle.app_capture_active {
+                                    let _ = state.app.emit(
+                                        "sally://warning",
+                                        format!(
+                                            "'{app_name}' has no active audio session — \
+                                             capturing the entire system instead."
+                                        ),
+                                    );
+                                }
+                                capture_handle = handle;
+                            }
+                            Err(e) => {
+                                let _ = state.app.emit(
+                                    "sally://warning",
+                                    format!("Couldn't switch capture source: {e}"),
+                                );
+                            }
+                        }
+                    }
+                    Some(Control::SetReadout(enabled)) => {
+                        state.readout_enabled = enabled;
+                        if enabled && !readout_is_safe(state.readout_safe, state.mic_muted) {
+                            warn_readout_feedback(&state.app);
+                        }
+                        if !enabled || !readout_is_safe(state.readout_safe, state.mic_muted) {
+                            if let Some(p) = state.player.as_ref() {
+                                p.clear();
+                            }
+                        }
+                    }
+                    Some(Control::SetReadoutVolume(v)) => {
+                        state.readout_volume = v.clamp(0.0, 1.0);
+                        if let Some(p) = state.player.as_ref() {
+                            p.set_volume(state.readout_volume);
+                        }
+                    }
+                    Some(Control::SetMicMuted(m, reply)) => {
+                        let result = if m {
+                            state.mic_capture.stop();
+                            state.pipeline.clear_microphone();
+                            state.mic_muted = true;
+                            state.mic_lost = false;
+                            let _ = state.app.emit("sally://mic-recovered", ());
+                            Ok(())
+                        } else if state.mic_muted {
+                            if let Some(player) = state.player.as_ref() { player.clear(); }
+                            capture::spawn_mic(state.config.mic_device.clone(), state.session_start, state.frame_tx.clone())
+                                .map(|mc| {
+                                    state.mic_capture = mc;
+                                    state.mic_muted = false;
+                                    state.mic_lost = false;
+                                    state.last_mic_instant = Instant::now();
+                                    if state.readout_enabled { warn_readout_feedback(&state.app); }
+                                })
+                        } else {
+                            Ok(())
+                        };
+                        let _ = reply.send(result);
+                    }
+                    Some(Control::Stop) | None => break,
+                }
+            }
+
+            // A background reconnect attempt succeeded.
+            newconn = async { state.reconnect_rx.as_mut().unwrap().await }, if state.reconnect_rx.is_some() => {
+                state.reconnect_rx = None;
+                match newconn {
+                    Ok(c) => {
+                        state.conn = Some(c);
+                        state.connected_at = Some(Instant::now());
+                        // "live" is emitted on setupComplete (Ready), not
+                        // here: a socket that opens but gets its setup
+                        // rejected must not flash the live status.
+                    }
+                    Err(_) => { /* reconnect task ended with the session */ }
+                }
+            }
+
+            // Raw audio frames from capture.
+            frame = frame_rx.recv() => {
+                let Some(frame) = frame else { break };
+                if state.paused {
+                    continue;
+                }
+                state.handle_frame(frame);
+            }
+
+            // Events from the Gemini Live connection.
+            event = async { state.conn.as_mut().unwrap().events_rx.recv().await }, if state.conn.is_some() => {
+                state.handle_live_event(event);
+            }
+
+            // Periodic recovery journal (design §8.2).
+            _ = journal_tick.tick() => {
+                let partial = state.assembler.partial();
+                let journal = RecoveryJournal {
+                    open_original: partial.as_ref().map(|p| p.original.clone()).unwrap_or_default(),
+                    open_translated: partial.as_ref().map(|p| p.translated.clone()).unwrap_or_default(),
+                    open_start_ms: partial.as_ref().map(|p| p.start_ms).unwrap_or(0),
+                    ..Default::default()
+                };
+                if let Err(e) = state.store.write_journal(&journal) {
+                    emit_status(&state.app, "storage-error", &e.to_string());
+                }
+            }
+        }
+    }
+
+    // Meeting end: finalize open entries and close the store. The raw file
+    // was appended as entries sealed, so no rewrite is needed — ending is
+    // immediate.
+    alive.store(false, Ordering::SeqCst);
+    capture_handle.stop();
+    state.mic_capture.stop();
+    finalize_entry(
+        &state.app,
+        &mut state.assembler,
+        &mut state.store,
+        &state.config,
+        &mut state.sealed_entries,
+    );
+    if let Some(rec) = state.recorder.as_mut() {
+        if let Err(e) = rec.finalize() {
+            log::error!("recording finalize failed: {e}");
+        }
+    }
+    drop(state.conn);
+    if let Err(e) = state.store.finalize() {
+        log::error!("finalize failed: {e}");
+    }
+    emit_status(&state.app, "ended", "");
+    let _ = done_tx.send(Ok(ReviewData { store: state.store }));
+}
+
+fn readout_is_safe(excludes_self: bool, mic_muted: bool) -> bool {
+    excludes_self && mic_muted
+}
+
+fn warn_readout_feedback(app: &AppHandle) {
+    let _ = app.emit("sally://warning", "Đọc bản dịch đang tạm ngừng để tránh thu lại tiếng của Sally. Tắt mic và dùng nguồn thu có loại trừ âm thanh của ứng dụng để đọc lại.");
+}
+
+/// Open the output lazily after the feedback guard has accepted this audio.
+fn play(player: &mut Option<Player>, readout_enabled: &mut bool, samples: &[i16], volume: f32) {
+    if samples.is_empty() {
+        return;
+    }
+    if player.is_none() {
+        match Player::new(volume) {
+            Ok(p) => *player = Some(p),
+            Err(e) => {
+                log::error!("readout unavailable: {e}");
+                *readout_enabled = false;
+                return;
+            }
+        }
+    }
+    if let Some(p) = player.as_mut() {
+        p.push(samples);
+    }
+}
+
+/// Post-process and persist one sealed entry.
+fn emit_sealed(
+    app: &AppHandle,
+    entry: crate::timeline::TimelineEntry,
+    store: &mut MeetingStore,
+    config: &AppConfig,
+    sealed_entries: &mut Vec<crate::timeline::TimelineEntry>,
+) {
+    append_and_emit(app, store, config, &entry);
+    sealed_entries.push(entry);
+}
+
+fn finalize_entry(
+    app: &AppHandle,
+    assembler: &mut Assembler,
+    store: &mut MeetingStore,
+    config: &AppConfig,
+    sealed_entries: &mut Vec<crate::timeline::TimelineEntry>,
+) {
+    for entry in assembler.finalize_turn() {
+        emit_sealed(app, entry, store, config, sealed_entries);
+    }
+}
+
+fn append_and_emit(
+    app: &AppHandle,
+    store: &mut MeetingStore,
+    config: &AppConfig,
+    entry: &crate::timeline::TimelineEntry,
+) {
+    if let Err(e) = store.append_entry(entry, &config.target_language) {
+        emit_status(app, "storage-error", &e.to_string());
+    }
+    let _ = app.emit("sally://entry", entry.clone());
+    let _ = app.emit("sally://partial", json!(null));
+}
+
+fn emit_partial(app: &AppHandle, assembler: &Assembler) {
+    if let Some(p) = assembler.partial() {
+        let _ = app.emit("sally://partial", p);
+    }
+}
+
+#[cfg(test)]
+mod feedback_tests {
+    use super::*;
+
+    #[test]
+    fn readout_requires_process_exclusion_and_no_acoustic_mic_path() {
+        assert!(readout_is_safe(true, true));
+        assert!(!readout_is_safe(false, true));
+        assert!(!readout_is_safe(true, false));
+        assert!(!readout_is_safe(false, false));
+    }
+}
