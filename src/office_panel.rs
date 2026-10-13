@@ -173,6 +173,8 @@ impl PentaKuru {
                     420.0,
                     if self.office.library_open {
                         460.0
+                    } else if self.office.operation == 3 || self.office.active.len() > 2 {
+                        360.0
                     } else {
                         330.0
                     },
@@ -180,7 +182,13 @@ impl PentaKuru {
                 .with_min_inner_size([
                     340.0,
                     if self.office.library_open {
-                        420.0
+                        if self.office.operation == 3 || self.office.active.len() > 2 {
+                            460.0
+                        } else {
+                            420.0
+                        }
+                    } else if self.office.operation == 3 || self.office.active.len() > 2 {
+                        360.0
                     } else {
                         300.0
                     },
@@ -349,6 +357,7 @@ impl PentaKuru {
             let height = (ui.available_height() - 235.0).clamp(40.0, 150.0);
             egui::ScrollArea::vertical()
                 .id_salt("office-library")
+                .min_scrolled_height(20.0)
                 .max_height(height)
                 .show_rows(ui, 24.0, files.len(), |ui, range| {
                     for file in &files[range] {
@@ -421,13 +430,23 @@ impl PentaKuru {
             theme::caption(ui, "Đang làm việc");
             egui::ScrollArea::vertical()
                 .id_salt("office-active")
+                .min_scrolled_height(20.0)
                 .max_height(66.0)
                 .show(ui, |ui| {
                     for session in &mut self.office.active {
                         ui.horizontal(|ui| {
                             if self.office.scope == 2 {
-                                ui.checkbox(&mut session.targeted, "")
+                                let target = ui
+                                    .checkbox(&mut session.targeted, "")
                                     .on_hover_text("Giao file này cho AI");
+                                target.widget_info(|| {
+                                    egui::WidgetInfo::selected(
+                                        egui::WidgetType::Checkbox,
+                                        ui.is_enabled(),
+                                        session.targeted,
+                                        format!("Giao {} cho AI", session.file.name),
+                                    )
+                                });
                             }
                             let focused = self.office.focused.as_ref() == Some(&session.file.path);
                             let text = egui::RichText::new(format!(
@@ -443,19 +462,43 @@ impl PentaKuru {
                                 theme::MUTED
                             });
                             let response = ui
-                                .add_enabled(!busy, egui::Button::new(text).frame(false).truncate())
+                                .allocate_ui_with_layout(
+                                    egui::vec2((ui.available_width() - 24.0).max(80.0), 22.0),
+                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    |ui| {
+                                        ui.add_enabled(
+                                            !busy,
+                                            egui::Button::new(text).frame(false).truncate(),
+                                        )
+                                    },
+                                )
+                                .inner
                                 .on_hover_text(session.file.path.display().to_string());
+                            response.widget_info(|| {
+                                egui::WidgetInfo::selected(
+                                    egui::WidgetType::Button,
+                                    !busy,
+                                    focused,
+                                    &session.file.name,
+                                )
+                            });
                             if response.clicked() {
                                 open_file = Some(session.file.clone());
                             }
-                            if ui
+                            let close = ui
                                 .add(
                                     egui::Button::new(egui::RichText::new("×").size(13.0))
                                         .frame(false),
                                 )
-                                .on_hover_text("Bỏ active; tài liệu vẫn mở trong LibreOffice")
-                                .clicked()
-                            {
+                                .on_hover_text("Bỏ active; tài liệu vẫn mở trong LibreOffice");
+                            close.widget_info(|| {
+                                egui::WidgetInfo::labeled(
+                                    egui::WidgetType::Button,
+                                    true,
+                                    format!("Bỏ active: {}", session.file.name),
+                                )
+                            });
+                            if close.clicked() {
                                 detach = Some(session.file.path.clone());
                             }
                         });
@@ -490,9 +533,18 @@ impl PentaKuru {
             .inner_margin(8)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
+                let history_height = (ui.available_height()
+                    - 124.0
+                    - if self.office.operation == 3 {
+                        30.0
+                    } else {
+                        0.0
+                    })
+                .clamp(20.0, 68.0);
                 egui::ScrollArea::vertical()
                     .id_salt("office-chat")
-                    .max_height(68.0)
+                    .min_scrolled_height(20.0)
+                    .max_height(history_height)
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
                         if self.office.chat.is_empty() {
@@ -704,6 +756,9 @@ fn office_icon(
     let response = ui
         .add_enabled_ui(enabled, |ui| theme::icon(ui, glyph, label, enabled))
         .inner;
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, selected, label)
+    });
     if selected {
         let rect = response.rect;
         ui.painter().line_segment(
