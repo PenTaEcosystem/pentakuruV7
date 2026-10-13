@@ -1,5 +1,7 @@
 # PentaKuru
 
+Windows, Linux và macOS: tải gói của hệ điều hành trong **Actions → Build desktop apps → Artifacts** sau lượt chạy thành công. [Phạm vi chức năng từng nền tảng](docs/PLATFORM-SUPPORT.md).
+
 Bạn đồng hành trên desktop, viết bằng **Rust**. Bản tích hợp Sally đầy đủ dùng giấy phép GPL-3.0; thông báo MIT của phần PentaKuru gốc được giữ trong `LICENSE-PENTEYE-MIT`.
 
 ## Bộ cài EXE

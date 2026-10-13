@@ -45,15 +45,27 @@ pub fn take<T: Send + 'static>(slot: &mut Option<Job<T>>) -> Option<T> {
     }
 }
 
+// Signed macOS app bundles must remain read-only, including their resource tree.
+fn portable_exe_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let parent = exe.parent()?;
+    #[cfg(target_os = "macos")]
+    if parent
+        .ancestors()
+        .any(|dir| dir.extension() == Some(std::ffi::OsStr::new("app")))
+    {
+        return None;
+    }
+    Some(parent.to_path_buf())
+}
+
 /// Name of the folder created next to the executable for notes and uploads.
 pub const DATA_FOLDER: &str = "Penteye Notes";
 
 /// `<exe folder>/Penteye Notes`, or `~/Documents/Penteye Notes` when the
 /// executable lives somewhere read-only (for example Program Files).
 pub fn data_dir() -> PathBuf {
-    if let Some(dir) = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join(DATA_FOLDER)))
+    if let Some(dir) = portable_exe_dir().map(|dir| dir.join(DATA_FOLDER))
         && std::fs::create_dir_all(&dir).is_ok()
         && writable(&dir)
     {
@@ -69,9 +81,7 @@ pub const UI_TARS_FOLDER: &str = "ui_tars";
 
 /// Đường dẫn thư mục chức năng UI-TARS (`<exe folder>/ui_tars` hoặc `~/Documents/PentaKuru/ui_tars`).
 pub fn ui_tars_dir() -> PathBuf {
-    if let Some(dir) = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join(UI_TARS_FOLDER)))
+    if let Some(dir) = portable_exe_dir().map(|dir| dir.join(UI_TARS_FOLDER))
         && std::fs::create_dir_all(&dir).is_ok()
         && writable(&dir)
     {
