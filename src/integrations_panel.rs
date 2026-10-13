@@ -51,7 +51,7 @@ impl PentaKuru {
         if settings.music != self.integrations.seen_music {
             self.integrations.seen_music = settings.music;
             let result = if settings.music {
-                integrations::music_open()
+                Ok(())
             } else {
                 crate::sally::launcher::close_web("penta-music")
             };
@@ -62,7 +62,7 @@ impl PentaKuru {
         if settings.clip != self.integrations.seen_clip {
             self.integrations.seen_clip = settings.clip;
             let result = if settings.clip {
-                integrations::clip_open()
+                Ok(())
             } else {
                 crate::sally::launcher::close_web("penta-clip")
             };

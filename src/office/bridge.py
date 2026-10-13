@@ -48,7 +48,7 @@ def desktop(request):
     if not name.isalnum():
         raise ValueError("Invalid pipe")
     address = f"uno:pipe,name={name};urp;StarOffice.ComponentContext"
-    if request["command"] in ("open", "create_fixture"):
+    if request["command"] in ("open", "create", "create_fixture"):
         # Start the acceptor before connecting. A second Windows pipe resolve
         # after a failed connection can block waiting for a server indefinitely.
         profile = Path(request["profile"]).resolve()
@@ -64,7 +64,7 @@ def desktop(request):
     try:
         context = resolver.resolve(address)
     except Exception:
-        if request["command"] not in ("open", "create_fixture"):
+        if request["command"] not in ("open", "create", "create_fixture"):
             raise ValueError("LibreOffice chưa mở. Bấm file để mở lại phiên.")
         profile = Path(request["profile"]).resolve()
         profile.mkdir(parents=True, exist_ok=True)
@@ -406,6 +406,26 @@ def execute(request):
             component.dispose()
         office.terminate()
         return {"closed": True}
+    if command == "create":
+        formats = {
+            "Word": ("private:factory/swriter", "Office Open XML Text", ".docx"),
+            "Excel": ("private:factory/scalc", "Calc MS Excel 2007 XML", ".xlsx"),
+            "PowerPoint": ("private:factory/simpress", "Impress MS PowerPoint 2007 XML", ".pptx"),
+        }
+        factory, file_filter, extension = formats[request["kind"]]
+        path = Path(request["path"]).resolve()
+        if path.exists() or path.suffix.lower() != extension:
+            raise ValueError("Document already exists or extension is invalid.")
+        doc = office.loadComponentFromURL(factory, "_blank", 0,
+            (prop("Hidden", False), prop("MacroExecutionMode", 0), prop("InteractionHandler", INTERACTION)))
+        try:
+            doc.storeAsURL(uno.systemPathToFileUrl(str(path)),
+                (prop("FilterName", file_filter), prop("Overwrite", False), prop("InteractionHandler", INTERACTION)))
+        except Exception:
+            doc.dispose()
+            raise
+        doc.getCurrentController().getFrame().activate()
+        return {"dirty": doc.isModified()}
     if command == "create_fixture":
         if ".build" not in Path(request["path"]).parts:
             raise ValueError("Fixture chỉ được tạo trong .build.")

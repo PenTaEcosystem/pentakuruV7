@@ -90,6 +90,9 @@ pub enum Glyph {
     Font,
     Align,
     Scope,
+    Word,
+    Excel,
+    Presentation,
 }
 
 pub const NOTE_ICONS: &[(&str, Glyph, &str)] = &[
@@ -292,6 +295,26 @@ pub fn draw_icon(p: &egui::Painter, c: Pos2, kind: Glyph, color: Color32) {
                 ],
                 s,
             ));
+        }
+        Glyph::Word | Glyph::Excel | Glyph::Presentation => {
+            p.rect_stroke(
+                egui::Rect::from_center_size(c, Vec2::new(18.0, 20.0)),
+                2,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            let letter = match kind {
+                Glyph::Word => "W",
+                Glyph::Excel => "X",
+                _ => "P",
+            };
+            p.text(
+                c,
+                egui::Align2::CENTER_CENTER,
+                letter,
+                egui::FontId::proportional(13.0),
+                s.color,
+            );
         }
         Glyph::File => {
             p.rect_stroke(

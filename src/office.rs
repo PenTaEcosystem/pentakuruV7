@@ -339,6 +339,40 @@ pub fn install() -> Result<ResultItem, String> {
         Ok(ResultItem::Installed("LibreOffice đã sẵn sàng.".into()))
     }
 }
+pub fn create(settings: &Settings, kind: Kind) -> Result<ResultItem, String> {
+    let base = system::home_dir().join("Documents").join("PentaKuru");
+    std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let directory = base.join(format!("{stamp}"));
+    std::fs::create_dir(&directory).map_err(|e| e.to_string())?;
+    let extension = match kind {
+        Kind::Word => "docx",
+        Kind::Excel => "xlsx",
+        Kind::PowerPoint => "pptx",
+    };
+    let name = format!("New {}.{extension}", kind.label());
+    let path = directory.join(&name);
+    match call(settings, &path, "create", json!({"kind": kind.label()})) {
+        Ok(value) => Ok(ResultItem::Opened(
+            File {
+                path,
+                name,
+                kind,
+                labels: vec!["PentaKuru".into()],
+                manual: false,
+            },
+            value["dirty"].as_bool().unwrap_or(false),
+        )),
+        Err(error) => {
+            let _ = std::fs::remove_dir(&directory);
+            Err(error)
+        }
+    }
+}
+
 pub fn call(
     settings: &Settings,
     path: &Path,

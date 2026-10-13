@@ -24,6 +24,9 @@ impl PentaKuru {
                     self.office.status = "Đã dán nhãn AI theo thư mục.".into();
                 }
                 Ok(office::ResultItem::Opened(file, dirty)) => {
+                    if !self.office.files.iter().any(|item| item.path == file.path) {
+                        self.office.files.push(file.clone());
+                    }
                     self.office.focused = Some(file.path.clone());
                     if let Some(session) = self
                         .office
@@ -170,29 +173,16 @@ impl PentaKuru {
             egui::ViewportBuilder::default()
                 .with_title("PentaKuru · Office")
                 .with_inner_size([
-                    420.0,
+                    380.0,
                     if self.office.library_open {
-                        460.0
-                    } else if self.office.operation == 3 || self.office.active.len() > 2 {
-                        360.0
+                        380.0
+                    } else if self.office.operation == 3 || !self.office.chat.is_empty() {
+                        270.0
                     } else {
-                        330.0
+                        210.0
                     },
                 ])
-                .with_min_inner_size([
-                    340.0,
-                    if self.office.library_open {
-                        if self.office.operation == 3 || self.office.active.len() > 2 {
-                            460.0
-                        } else {
-                            420.0
-                        }
-                    } else if self.office.operation == 3 || self.office.active.len() > 2 {
-                        360.0
-                    } else {
-                        300.0
-                    },
-                ])
+                .with_min_inner_size([320.0, 180.0])
                 .with_resizable(true)
                 .with_always_on_top(),
             |ui, _| {
@@ -526,40 +516,45 @@ impl PentaKuru {
             }
         }
         let mut action = None;
+        let mut create_kind = None;
         egui::Frame::new()
             .fill(theme::SIDEBAR)
             .stroke(egui::Stroke::new(1.0, theme::BORDER))
             .corner_radius(12)
-            .inner_margin(8)
+            .inner_margin(6)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let history_height = (ui.available_height()
-                    - 124.0
+                    - 100.0
                     - if self.office.operation == 3 {
                         30.0
                     } else {
                         0.0
                     })
                 .clamp(20.0, 68.0);
-                egui::ScrollArea::vertical()
-                    .id_salt("office-chat")
-                    .min_scrolled_height(20.0)
-                    .max_height(history_height)
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        if self.office.chat.is_empty() {
-                            theme::caption(ui, "Mở tài liệu rồi nhắn yêu cầu chỉnh sửa.");
-                        }
-                        for (user, text) in &self.office.chat {
-                            ui.label(
-                                egui::RichText::new(if *user { "Bạn" } else { "AI" })
-                                    .size(10.0)
-                                    .color(theme::MUTED),
-                            );
-                            ui.label(egui::RichText::new(text).size(12.0).color(theme::TEXT));
-                        }
-                    });
+                if !self.office.chat.is_empty() {
+                    egui::ScrollArea::vertical()
+                        .id_salt("office-chat")
+                        .min_scrolled_height(20.0)
+                        .max_height(history_height)
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            if self.office.chat.is_empty() {
+                                theme::caption(ui, "Mở tài liệu rồi nhắn yêu cầu chỉnh sửa.");
+                            }
+                            for (user, text) in &self.office.chat {
+                                ui.label(
+                                    egui::RichText::new(if *user { "Bạn" } else { "AI" })
+                                        .size(10.0)
+                                        .color(theme::MUTED),
+                                );
+                                ui.label(egui::RichText::new(text).size(12.0).color(theme::TEXT));
+                            }
+                        });
+                }
                 if !self.office.status.is_empty()
+                    && !self.office.status.contains("tài liệu · nhãn theo thư mục")
+                    && !self.office.status.starts_with("Đã mở trong LibreOffice")
                     && (busy
                         || self
                             .office
@@ -574,7 +569,7 @@ impl PentaKuru {
                         egui::TextEdit::multiline(&mut self.office.prompt)
                             .font(egui::FontId::proportional(12.0))
                             .hint_text("Nhắn yêu cầu chỉnh tài liệu…")
-                            .desired_rows(2)
+                            .desired_rows(1)
                             .desired_width((ui.available_width() - 38.0).max(100.0))
                             .frame(egui::Frame::NONE),
                     );
@@ -591,66 +586,57 @@ impl PentaKuru {
                     }
                 });
                 ui.horizontal(|ui| {
-                    for (i, glyph) in [
-                        theme::Glyph::Check,
-                        theme::Glyph::Spark,
-                        theme::Glyph::Align,
-                        theme::Glyph::Font,
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
+                    for (kind, glyph) in [
+                        (office::Kind::Word, theme::Glyph::Word),
+                        (office::Kind::Excel, theme::Glyph::Excel),
+                        (office::Kind::PowerPoint, theme::Glyph::Presentation),
+                    ] {
                         if office_icon(
                             ui,
                             glyph,
-                            OFFICE_OPERATIONS[i],
+                            &format!("Tạo {} mới", kind.label()),
                             !busy,
-                            self.office.operation == i,
+                            false,
                         )
                         .clicked()
                         {
-                            self.office.operation = i;
+                            create_kind = Some(kind);
                         }
                     }
                     let response = office_icon(
                         ui,
-                        theme::Glyph::Scope,
-                        "Chọn phạm vi chỉnh sửa",
+                        theme::Glyph::Settings,
+                        "Thao tác chỉnh sửa",
                         !busy,
-                        self.office.scope != 1,
+                        false,
                     );
                     egui::Popup::menu(&response).show(|ui| {
-                        for (i, name) in OFFICE_SCOPES.iter().enumerate() {
+                        for (i, name) in OFFICE_OPERATIONS.iter().take(4).enumerate() {
                             if ui
-                                .selectable_value(&mut self.office.scope, i, *name)
+                                .selectable_value(&mut self.office.operation, i, *name)
                                 .clicked()
                             {
                                 ui.close();
                             }
                         }
+                        ui.separator();
+                        for (i, name) in OFFICE_SCOPES.iter().enumerate() {
+                            ui.selectable_value(&mut self.office.scope, i, *name);
+                        }
+                        ui.separator();
+                        for (i, name) in [(4, "Hoàn tác"), (5, "Lưu tài liệu")] {
+                            if ui
+                                .add_enabled(
+                                    !self.office.active.is_empty(),
+                                    egui::Button::new(name),
+                                )
+                                .clicked()
+                            {
+                                action = Some(i);
+                                ui.close();
+                            }
+                        }
                     });
-                    if office_icon(
-                        ui,
-                        theme::Glyph::Undo,
-                        "Hoàn tác",
-                        !busy && !self.office.active.is_empty(),
-                        false,
-                    )
-                    .clicked()
-                    {
-                        action = Some(4);
-                    }
-                    if office_icon(
-                        ui,
-                        theme::Glyph::Save,
-                        "Lưu tài liệu",
-                        !busy && !self.office.active.is_empty(),
-                        false,
-                    )
-                    .clicked()
-                    {
-                        action = Some(5);
-                    }
                 });
                 theme::caption(
                     ui,
@@ -674,6 +660,18 @@ impl PentaKuru {
                     });
                 }
             });
+        if let Some(kind) = create_kind {
+            match kind {
+                office::Kind::Word => self.prefs.office.writer = true,
+                office::Kind::Excel => self.prefs.office.calc = true,
+                office::Kind::PowerPoint => self.prefs.office.impress = true,
+            }
+            let settings = self.prefs.office.clone();
+            self.office.status = format!("Đang tạo {} mới…", kind.label());
+            self.office.job = Some(system::Job::spawn(ui.ctx(), move || {
+                office::create(&settings, kind)
+            }));
+        }
         if let Some(action) = action {
             self.run_office_action(ui, action);
         }
