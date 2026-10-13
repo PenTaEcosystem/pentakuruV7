@@ -121,15 +121,12 @@ pub fn run(
                                 let parsed:tauri::Url=url.parse().map_err(|_|"Invalid integration URL")?;
                                 let host=parsed.host_str().unwrap_or("").to_owned();
                                 if !matches!(host.as_str(),"music.pentasys.id.vn"|"clip.pentasys.id.vn"|"127.0.0.1") {return Err("Integration origin not allowed".into());}
-                                if let Some(window)=handle.get_webview_window(label).filter(|_|web_scripts.get(label).is_some_and(|previous|previous!=&script)){
+                                if let Some(window)=handle.get_webview_window(label).filter(|window|web_scripts.get(label).is_some_and(|previous|previous!=&script)||(label=="penta-tutor"&&window.url().is_ok_and(|current|current!=parsed))){
                                     window.destroy().map_err(|e|e.to_string())?;
                                     let deadline=std::time::Instant::now()+std::time::Duration::from_secs(2);
                                     while handle.get_webview_window(label).is_some(){if std::time::Instant::now()>deadline{return Err("Khung đang đóng; thử mở lại.".into());}std::thread::sleep(std::time::Duration::from_millis(20));}
                                 }
                                 if let Some(window)=handle.get_webview_window(label){
-                                    if label=="penta-tutor" && window.url().map_err(|e|e.to_string())?!=parsed {
-                                        window.navigate(parsed.clone()).map_err(|e|e.to_string())?;
-                                    }
                                     window.show().and_then(|_|window.unminimize()).and_then(|_|window.set_focus()).map_err(|e|e.to_string())?;
                                 }else{
                                     let scheme=parsed.scheme().to_owned();let port=parsed.port_or_known_default();
