@@ -83,6 +83,13 @@ pub enum Glyph {
     Tag,
     Camera,
     Stop,
+    Settings,
+    Refresh,
+    Undo,
+    Save,
+    Font,
+    Align,
+    Scope,
 }
 
 pub const NOTE_ICONS: &[(&str, Glyph, &str)] = &[
@@ -137,6 +144,75 @@ pub fn draw_icon(p: &egui::Painter, c: Pos2, kind: Glyph, color: Color32) {
         p.line_segment([c + Vec2::new(a.0, a.1), c + Vec2::new(b.0, b.1)], s);
     };
     match kind {
+        Glyph::Settings => {
+            p.circle_stroke(c, 6.0, s);
+            p.circle_stroke(c, 2.0, s);
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::TAU / 8.0;
+                let v = Vec2::angled(a);
+                p.line_segment([c + v * 6.0, c + v * 9.0], s);
+            }
+        }
+        Glyph::Refresh => {
+            p.add(egui::Shape::line(
+                (0..20)
+                    .map(|i| {
+                        let a = i as f32 * 0.25 + 0.4;
+                        c + Vec2::angled(a) * 7.0
+                    })
+                    .collect(),
+                s,
+            ));
+            line((7.0, -2.0), (7.0, 3.0));
+            line((7.0, 3.0), (2.0, 3.0));
+        }
+        Glyph::Undo => {
+            line((-7.0, -3.0), (5.0, -3.0));
+            line((-7.0, -3.0), (-3.0, -7.0));
+            line((-7.0, -3.0), (-3.0, 1.0));
+            line((5.0, -3.0), (7.0, 2.0));
+            line((7.0, 2.0), (3.0, 6.0));
+            line((3.0, 6.0), (-3.0, 6.0));
+        }
+        Glyph::Save => {
+            p.rect_stroke(
+                egui::Rect::from_center_size(c, Vec2::splat(14.0)),
+                1,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            line((-3.0, -7.0), (-3.0, -1.0));
+            line((-3.0, -1.0), (4.0, -1.0));
+            line((4.0, -1.0), (4.0, -7.0));
+            p.rect_stroke(
+                egui::Rect::from_center_size(c + Vec2::new(0.0, 4.0), Vec2::new(8.0, 6.0)),
+                0,
+                s,
+                egui::StrokeKind::Inside,
+            );
+        }
+        Glyph::Font => {
+            line((-7.0, 7.0), (0.0, -7.0));
+            line((0.0, -7.0), (7.0, 7.0));
+            line((-4.0, 2.0), (4.0, 2.0));
+        }
+        Glyph::Align => {
+            for (y, w) in [(-6.0, 7.0), (-2.0, 4.0), (2.0, 7.0), (6.0, 4.0)] {
+                line((-w, y), (w, y));
+            }
+        }
+        Glyph::Scope => {
+            p.rect_stroke(
+                egui::Rect::from_center_size(c, Vec2::splat(12.0)),
+                1,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            line((-9.0, 0.0), (-4.0, 0.0));
+            line((4.0, 0.0), (9.0, 0.0));
+            line((0.0, -9.0), (0.0, -4.0));
+            line((0.0, 4.0), (0.0, 9.0));
+        }
         Glyph::Stop => {
             p.rect_filled(
                 egui::Rect::from_center_size(c, Vec2::splat(9.0)),

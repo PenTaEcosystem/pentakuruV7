@@ -66,3 +66,7 @@ Bấm **Cài đặt / mở DeepTutor** để tự chuẩn bị Python 3.13.12, N
 - DeepTutor v1.6.14: https://github.com/HKUDS/DeepTutor/tree/v1.6.14
 - Penta Music: https://music.pentasys.id.vn/
 - Penta Clip: https://clip.pentasys.id.vn/feed/subscriptions
+
+## Office gọn hơn
+
+Thanh công cụ dùng icon vector có nhãn trợ năng và tooltip. Thư viện và danh sách active dùng chữ 12px, không có khung từng file; tên dài rút gọn và xem đầy đủ khi rê chuột. Bộ lọc loại file/nhãn và phạm vi AI nằm trong menu icon. Một khung chat chứa lịch sử yêu cầu/kết quả, ô nhập và icon thao tác. Các lệnh hoàn tác/lưu/căn ảnh/đổi font giữ bản nháp đang gõ. Chỉnh sửa vẫn dùng LibreOffice trực tiếp và chỉ những file thuộc phạm vi được chọn.

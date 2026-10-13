@@ -455,7 +455,7 @@ impl PentaKuru {
                     };
                 }
                 "notes" | "notes-small" => app.notes_open = true,
-                "office" => {
+                "office" | "office-library" | "office-chat" | "office-small" => {
                     let file = office::File {
                         path: PathBuf::from(".build/ui-office/Giao-an.docx"),
                         name: "Giáo án Ngữ văn.docx".into(),
@@ -471,6 +471,35 @@ impl PentaKuru {
                     });
                     app.office.files.push(file);
                     app.office.status = "Bản xem trước · dữ liệu mẫu".into();
+                    if kind == "office-library" || kind == "office-small" {
+                        app.office.library_open = true;
+                        app.office.filter = None;
+                        for (name, file_kind) in [
+                            ("Bài giảng và kế hoạch học tập.docx", office::Kind::Word),
+                            ("Bảng tính không có tiêu đề.xlsx", office::Kind::Excel),
+                            ("Thuyết trình dự án.pptx", office::Kind::PowerPoint),
+                            ("Bài viết cần kiểm tra chính tả.docx", office::Kind::Word),
+                        ] {
+                            app.office.files.push(office::File {
+                                path: PathBuf::from(".build/ui-office").join(name),
+                                name: name.into(),
+                                kind: file_kind,
+                                labels: vec!["Dự án".into()],
+                                manual: false,
+                            });
+                        }
+                    }
+                    if kind == "office-chat" || kind == "office-small" {
+                        app.office.chat = vec![
+                            (true, "Sửa chính tả và giữ nguyên ý chính giúp tôi.".into()),
+                            (
+                                false,
+                                "Giáo án Ngữ văn.docx: Đã sửa chính tả.
+Bản gốc được giữ để hoàn tác."
+                                    .into(),
+                            ),
+                        ];
+                    }
                 }
                 "search" | "search-results" => {
                     app.search_open = true;
