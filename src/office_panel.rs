@@ -507,7 +507,14 @@ impl PentaKuru {
                             ui.label(egui::RichText::new(text).size(12.0).color(theme::TEXT));
                         }
                     });
-                if busy || (self.office.chat.is_empty() && !self.office.status.is_empty()) {
+                if !self.office.status.is_empty()
+                    && (busy
+                        || self
+                            .office
+                            .chat
+                            .last()
+                            .is_none_or(|(_, text)| text != &self.office.status))
+                {
                     theme::caption(ui, &self.office.status);
                 }
                 ui.horizontal(|ui| {
