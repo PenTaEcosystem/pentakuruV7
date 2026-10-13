@@ -1,0 +1,26 @@
+{
+  "product": "PentaKuru",
+  "verified_at": "2026-10-13T08:32:24.666319+00:00",
+  "checks": {
+    "rust_tests_passed": 50,
+    "watch_tests_passed": 20,
+    "rustfmt": "passed",
+    "clippy": "passed",
+    "release_build": "passed",
+    "installer_selection_upgrade_uninstall": "passed"
+  },
+  "artifacts": {
+    "PentaKuru-Setup.exe": {
+      "bytes": 9782091,
+      "sha256": "4e520303b390115afcf2b886a117a0522e5722965ba1d5afa105f2aa54880f9f"
+    },
+    "PentaKuru-Office-Media.exe": {
+      "bytes": 30230016,
+      "sha256": "d362149159ae95a0c97d9bcf8bd5ad979b6acad2eb22edbe460a0c7451d15df3"
+    },
+    "PentaKuru-Watch-1.2.3.zab": {
+      "bytes": 369543,
+      "sha256": "22c0b2388680b7e5657a7ae81af77e1a6c2019945e709ce05338b09cab98ae6a"
+    }
+  }
+}

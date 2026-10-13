@@ -7,3 +7,5 @@ Storage IDs, the legacy `Penteye Notes` directory, Tauri identifier, startup reg
 Validation: `cargo fmt --check`, `cargo test --locked` (50 passed), `cargo clippy --locked --all-targets -- -D warnings`. Historical verification JSON files describe earlier PentaEye builds; they are not evidence for the renamed binary.
 
 The repository includes source only. Downloaded runtimes, build outputs, credentials and personal notes are excluded. CI targets Windows and builds the embedded Sally frontend before Rust.
+
+Additional validation: watch companion tests (20 passed); Windows release build; installer component selection, upgrade and uninstall checks passed using an isolated test AppId.

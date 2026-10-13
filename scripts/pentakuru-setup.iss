@@ -137,7 +137,11 @@ Type: files; Name: "{app}\installation-options.json"
 [Code]
 function LegacyAutostartEnabled: Boolean;
 begin
+#ifdef PentaKuruTest
+  Result := False;
+#else
   Result := RegValueExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Penteye');
+#endif
 end;
 
 function SelectedBool(Name: String): String;
