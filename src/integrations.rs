@@ -37,10 +37,11 @@ pub struct State {
     pub seen_music: bool,
     pub seen_clip: bool,
     pub seen_tutor: bool,
+    pub tutor_status_open: bool,
     pub cancel: Arc<AtomicBool>,
     pub progress: Arc<Mutex<String>>,
 }
-pub struct TutorChild(pub Child, pub bool);
+pub struct TutorChild(pub Child, pub bool, pub u16);
 impl Drop for TutorChild {
     fn drop(&mut self) {
         stop_child(&mut self.0);
@@ -160,6 +161,24 @@ struct RuntimePaths {
     python: PathBuf,
     node_dir: PathBuf,
 }
+fn tutor_ports(preferred: (u16, u16)) -> Result<(u16, u16), String> {
+    use std::net::TcpListener;
+    if let Ok(backend) = TcpListener::bind(("127.0.0.1", preferred.0))
+        && let Ok(frontend) = TcpListener::bind(("127.0.0.1", preferred.1))
+    {
+        return Ok((
+            backend.local_addr().map_err(|e| e.to_string())?.port(),
+            frontend.local_addr().map_err(|e| e.to_string())?.port(),
+        ));
+    }
+    let backend = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+    let frontend = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+    Ok((
+        backend.local_addr().map_err(|e| e.to_string())?.port(),
+        frontend.local_addr().map_err(|e| e.to_string())?.port(),
+    ))
+}
+
 pub fn start_tutor(
     ai_settings: &ai::AiSettings,
     shared: bool,
@@ -172,7 +191,7 @@ pub fn start_tutor(
         cancel,
         progress,
         tutor_home(),
-        (3896, 3897),
+        tutor_ports((3896, 3897))?,
         true,
     )
 }
@@ -332,7 +351,7 @@ fn start_tutor_at(
             return Err("Đã dừng DeepTutor.".into());
         }
         if child.try_wait().map_err(|e| e.to_string())?.is_some() {
-            return Err("DeepTutor đã dừng khi khởi động; kiểm tra cấu hình/runtime.".into());
+            return Err("DeepTutor đã dừng khi khởi động. Xem DeepTutor/startup.log.".into());
         }
         if agent
             .get(format!("http://127.0.0.1:{}/", ports.1))
@@ -344,7 +363,7 @@ fn start_tutor_at(
                 .is_ok()
         {
             tutor_stage(&home, progress, "DeepTutor đã sẵn sàng");
-            return Ok(TutorChild(child, synced_ai));
+            return Ok(TutorChild(child, synced_ai, ports.1));
         }
         if std::time::Instant::now() > deadline {
             stop_child(&mut child);
@@ -458,10 +477,10 @@ pub fn stop_child(child: &mut Child) {
     }
     let _ = child.wait();
 }
-pub fn tutor_open() -> Result<(), String> {
+pub fn tutor_open(port: u16) -> Result<(), String> {
     crate::sally::launcher::open_web(
         "penta-tutor",
-        "http://127.0.0.1:3897/",
+        &format!("http://127.0.0.1:{port}/"),
         "PentaKuru · DeepTutor",
         960.0,
         700.0,
@@ -488,6 +507,23 @@ impl Drop for State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn occupied_tutor_ports_select_a_distinct_available_pair() {
+        use std::net::TcpListener;
+        let backend = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let frontend = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let occupied = (
+            backend.local_addr().unwrap().port(),
+            frontend.local_addr().unwrap().port(),
+        );
+        let selected = tutor_ports(occupied).unwrap();
+        assert_ne!(selected.0, selected.1);
+        assert!(![occupied.0, occupied.1].contains(&selected.0));
+        assert!(![occupied.0, occupied.1].contains(&selected.1));
+        let _backend = TcpListener::bind(("127.0.0.1", selected.0)).unwrap();
+        let _frontend = TcpListener::bind(("127.0.0.1", selected.1)).unwrap();
+    }
+
     #[test]
     fn shared_catalog_preserves_other_services() {
         let cfg = ai::AiSettings {

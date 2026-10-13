@@ -124,13 +124,7 @@ impl PentaKuru {
                     self.integrations.status = e;
                 }
             }
-            Icon::Tutor => {
-                if self.integrations.child.is_none() {
-                    self.restart_tutor(ctx);
-                } else if let Err(e) = integrations::tutor_open() {
-                    self.integrations.status = e;
-                }
-            }
+            Icon::Tutor => self.open_tutor(ctx),
             Icon::UiTars => {
                 let already_open = self.ai_open && self.ai_mode == AiMode::UiTars;
                 self.ai_mode = AiMode::UiTars;

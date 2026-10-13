@@ -11,7 +11,7 @@ impl PentaKuru {
                 if ui.add_enabled(self.integrations.job.is_none(),egui::Button::new(if self.integrations.child.is_some(){"Mở DeepTutor"}else{"Cài đặt / mở DeepTutor"})).clicked(){
                     self.prefs.integrations.deeptutor=true;
                     self.integrations.seen_tutor=true;
-                    if self.integrations.child.is_some(){self.integrations.status=integrations::tutor_open().err().unwrap_or_else(||"Đã mở DeepTutor.".into());}else{self.restart_tutor(ui.ctx());}
+                    self.open_tutor(ui.ctx());
                 }
                 if ui.add_enabled(self.prefs.integrations.deeptutor&&self.integrations.job.is_none(),egui::Button::new("Kết nối lại / đồng bộ AI")).clicked(){self.restart_tutor(ui.ctx());}
             });
@@ -26,7 +26,52 @@ impl PentaKuru {
             if !self.integrations.status.is_empty(){theme::caption(ui,&self.integrations.status);}
         });
     }
+    pub(super) fn open_tutor(&mut self, ctx: &egui::Context) {
+        self.prefs.integrations.deeptutor = true;
+        self.integrations.seen_tutor = true;
+        self.integrations.tutor_status_open = true;
+        if let Some(child) = &mut self.integrations.child {
+            if child.0.try_wait().ok().flatten().is_none() {
+                match integrations::tutor_open(child.2) {
+                    Ok(()) => self.integrations.tutor_status_open = false,
+                    Err(error) => self.integrations.status = error,
+                }
+                return;
+            }
+            self.integrations.child = None;
+        }
+        self.restart_tutor(ctx);
+    }
+    pub(super) fn tutor_status_window(&mut self, ctx: &egui::Context) {
+        if !self.integrations.tutor_status_open {
+            return;
+        }
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("deeptutor-status"),
+            egui::ViewportBuilder::default().with_title("PentaKuru · DeepTutor")
+                .with_inner_size([380.0, 180.0]).with_min_inner_size([320.0, 160.0]),
+            |ctx, _| {
+                if ctx.input(|i| i.viewport().close_requested()) { self.integrations.tutor_status_open = false; }
+                egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::PANEL).inner_margin(12)).show(ctx, |ui| {
+                    if self.integrations.job.is_some() {
+                        ui.horizontal(|ui| { ui.spinner(); ui.label("Đang chuẩn bị DeepTutor…"); });
+                        let stage = self.integrations.progress.lock().map(|p| p.clone()).unwrap_or_default();
+                        ui.label(stage);
+                        theme::caption(ui, "Lần cài đầu cần tải các thư viện. Anh có thể tiếp tục dùng chức năng khác.");
+                        if ui.button("Dừng").clicked() {
+                            self.prefs.integrations.deeptutor = false;
+                            self.integrations.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    } else {
+                        ui.label(&self.integrations.status);
+                        if ui.button("Thử mở lại").clicked() { self.open_tutor(ui.ctx()); }
+                    }
+                });
+            },
+        );
+    }
     pub(super) fn restart_tutor(&mut self, ctx: &egui::Context) {
+        self.integrations.tutor_status_open = true;
         if self.integrations.job.is_some() {
             return;
         }
@@ -72,9 +117,7 @@ impl PentaKuru {
         }
         if settings.deeptutor != self.integrations.seen_tutor {
             self.integrations.seen_tutor = settings.deeptutor;
-            if settings.deeptutor {
-                self.restart_tutor(ctx);
-            } else {
+            if !settings.deeptutor {
                 self.integrations
                     .cancel
                     .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -89,13 +132,24 @@ impl PentaKuru {
                 Ok(mut child) => {
                     if self.prefs.integrations.deeptutor {
                         let synced = child.1;
+                        let opened = integrations::tutor_open(child.2);
                         self.integrations.child = Some(child);
-                        self.integrations.status=integrations::tutor_open().err().unwrap_or_else(||if synced{"DeepTutor sẵn sàng · đã đồng bộ AI PentaKuru.".into()}else{"DeepTutor đã mở. Chọn API/model trong Settings rồi bấm Đồng bộ AI nếu cần.".into()});
+                        self.integrations.tutor_status_open = opened.is_err();
+                        self.integrations.status = opened.err().unwrap_or_else(|| {
+                            if synced {
+                                "DeepTutor sẵn sàng · đã đồng bộ AI PentaKuru.".into()
+                            } else {
+                                "DeepTutor đã mở. Chọn API/model trong Settings nếu cần.".into()
+                            }
+                        });
                     } else {
                         integrations::stop_child(&mut child.0);
                     }
                 }
-                Err(error) => self.integrations.status = error,
+                Err(error) => {
+                    self.integrations.status = error;
+                    self.integrations.tutor_status_open = true;
+                }
             }
         }
         if self.integrations.job.is_some() {

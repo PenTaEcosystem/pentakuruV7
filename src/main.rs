@@ -1140,6 +1140,7 @@ Một giao diện đơn giản để tập trung vào điều anh đang làm."
 
     fn auxiliary_windows(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.office_window(ctx);
+        self.tutor_status_window(ctx);
         let mut save = false;
 
         self.notes_window(ctx);
