@@ -1,4 +1,4 @@
-; Build with Inno Setup 6.7.3+; no account credentials are embedded.
+﻿; Build with Inno Setup 6.7.3+; no account credentials are embedded.
 #define Root AddBackslash(SourcePath) + ".."
 #include Root + "\dist\prerequisites\vc-runtime-version.iss"
 #ifdef PentaKuruTest
@@ -60,7 +60,7 @@ ExitSetupTitle=Thoát bộ cài
 ExitSetupMessage=Cài đặt chưa hoàn tất. Anh có muốn thoát và cài lại sau không?
 SetupWindowTitle=Cài đặt PentaKuru
 WelcomeLabel1=Chào mừng đến với PentaKuru
-WelcomeLabel2=Bộ cài sẽ hướng dẫn anh chọn nơi cài và những tiện ích cần sử dụng.%n%nCó thể thay đổi tiện ích sau trong Settings. Office và DeepTutor tải runtime khi bật; Music và Clip cần kết nối Internet.%n%nBấm Tiếp tục để bắt đầu.
+WelcomeLabel2=Bộ cài sẽ hướng dẫn anh chọn nơi cài và những tiện ích cần sử dụng.%n%nCó thể thay đổi tiện ích sau trong Settings. Office cài LibreOffice khi được chọn; DeepTutor tải runtime khi bật; Music và Clip cần kết nối Internet.%n%nBấm Tiếp tục để bắt đầu.
 ButtonBack=< Quay lại
 ButtonNext=Tiếp tục >
 ButtonInstall=Cài đặt
@@ -76,7 +76,7 @@ SelectDirDesc=PentaKuru sẽ được cài vào thư mục nào?
 SelectDirLabel3=Bấm Tiếp tục để dùng thư mục này hoặc Duyệt để chọn thư mục khác.
 WizardSelectComponents=Chọn tiện ích
 SelectComponentsDesc=Chọn những tiện ích anh muốn sử dụng.
-SelectComponentsLabel2=Bỏ chọn những tiện ích chưa cần. Office và DeepTutor chuẩn bị runtime khi bật. DeepTutor tự chuẩn bị Python/Node còn thiếu; cấu hình API/model AI trong Settings để bắt đầu học.
+SelectComponentsLabel2=Bỏ chọn những tiện ích chưa cần. Office chuẩn bị LibreOffice ngay trong Setup. DeepTutor tự chuẩn bị Python/Node còn thiếu; cấu hình API/model AI trong Settings để bắt đầu học.
 WizardSelectTasks=Tùy chọn bổ sung
 SelectTasksDesc=Chọn biểu tượng truy cập nhanh.
 SelectTasksLabel2=Chọn những tùy chọn anh muốn tạo, sau đó bấm Tiếp tục.
@@ -116,6 +116,7 @@ Name: "uitars"; Description: "UI-TARS — thao tác máy tính bằng AI"; Flags
 Name: "desktopicon"; Description: "Tạo biểu tượng trên Desktop"; Flags: unchecked
 
 [Files]
+Source: "{#Root}\scripts\install-office.ps1"; Flags: dontcopy
 Source: "{#Root}\dist\prerequisites\vc_redist.x64.exe"; Flags: dontcopy
 Source: "{#Root}\target\release\pentakuru.exe"; DestDir: "{app}"; DestName: "PentaKuru.exe"; Flags: ignoreversion; Components: core
 Source: "{#Root}\LICENSE"; DestDir: "{app}"; Components: core
@@ -145,6 +146,7 @@ Type: files; Name: "{app}\installation-options.json"
 
 [Code]
 #include "vc-runtime-check.iss"
+#include "office-runtime-check.iss"
 function LegacyAutostartEnabled: Boolean;
 begin
 #ifdef PentaKuruTest

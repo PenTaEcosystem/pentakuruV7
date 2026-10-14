@@ -187,6 +187,14 @@ pub fn focus_window_by_title(title: &str) {
 }
 
 /// Áp dụng Immersive Dark Mode và Alpha Transparency cho cửa sổ OS để tránh chớp trắng.
+/// Office uses a solid frame without Windows 11 backdrop or native drop shadow.
+pub fn apply_flat_window(title: &str) {
+    #[cfg(windows)]
+    platform::apply_flat_window(title);
+    #[cfg(not(windows))]
+    let _ = title;
+}
+
 pub fn apply_window_dark_and_transparency(title: &str) {
     platform::apply_window_dark_and_transparency(title);
 }
@@ -522,6 +530,27 @@ mod platform {
                 };
                 let _ = DwmEnableBlurBehindWindow(hwnd, &configuration);
                 DeleteObject(region);
+            }
+        }
+    }
+
+    pub fn apply_flat_window(title: &str) {
+        use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+        let title_w = wide(title);
+        unsafe {
+            let hwnd = FindWindowW(std::ptr::null(), title_w.as_ptr());
+            if hwnd.is_null() {
+                return;
+            }
+            // DWMSBT_NONE, DWMWCP_DONOTROUND and DWMNCRP_DISABLED.
+            // Unsupported attributes on older Windows are harmless.
+            for (attribute, value) in [(38u32, 1i32), (33, 1), (2, 1)] {
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    attribute,
+                    &value as *const _ as _,
+                    std::mem::size_of::<i32>() as u32,
+                );
             }
         }
     }

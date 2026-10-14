@@ -54,7 +54,7 @@ begin
   Log('VC_RUNTIME_CAN_LAUNCH=' + IntToStr(Ord(Result)));
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+function PrepareVcRuntime(var NeedsRestart: Boolean): String;
 var
   RuntimePath, Parameters, LogDirectory, LogPath: String;
   PayloadVersion: Int64;

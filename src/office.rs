@@ -310,6 +310,7 @@ pub fn program(settings: &Settings) -> Option<PathBuf> {
     let candidates = [
         PathBuf::from(&settings.program),
         system::data_dir().join("Office/runtime/LibreOffice/program"),
+        system::data_dir().join("Office/runtime/program"),
         PathBuf::from("C:/Program Files/LibreOffice/program"),
         PathBuf::from("C:/Program Files (x86)/LibreOffice/program"),
     ];
@@ -331,6 +332,7 @@ pub fn install() -> Result<ResultItem, String> {
         std::fs::write(&script, include_str!("../scripts/install-office.ps1"))
             .map_err(|e| e.to_string())?;
         let output = Command::new("powershell.exe")
+            .env_remove("PSModulePath")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(script)
             .arg("-Destination")

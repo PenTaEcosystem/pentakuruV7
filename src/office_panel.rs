@@ -191,6 +191,8 @@ impl PentaKuru {
             ViewportId::from_hash_of("office"),
             egui::ViewportBuilder::default()
                 .with_title("PentaKuru · Office")
+                .with_transparent(false)
+                .with_has_shadow(false)
                 .with_inner_size([
                     if self.office.library_open {
                         480.0
@@ -216,6 +218,7 @@ impl PentaKuru {
                 .with_resizable(true)
                 .with_always_on_top(),
             |ui, _| {
+                crate::system::apply_flat_window("PentaKuru · Office");
                 if ui.input(|i| i.viewport().close_requested()) {
                     self.office_open = false;
                     self.office.clear_chat();

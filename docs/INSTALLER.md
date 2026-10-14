@@ -29,3 +29,9 @@ Script build tải `https://aka.ms/vc14/vc_redist.x64.exe` vào `dist/prerequisi
 Kiểm thử bootstrap: build với `-TestBuild`, rồi chạy `scripts/check-vc-runtime-installer.ps1`. Các trạng thái runtime và mã thoát Microsoft được mô phỏng trong bản test; bản sản xuất không nhận tham số mô phỏng. Tests xác minh bỏ qua, cài, sửa, phiên bản mới hơn, hủy, lỗi và khởi động lại. Chưa thay thế cho kiểm thử cài thực tế trên máy Windows sạch thiếu runtime.
 
 Tài liệu Microsoft: https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+
+## LibreOffice trong Setup
+
+Khi chọn Writer, Impress hoặc Calc, Setup kiểm tra LibreOffice có đủ soffice.exe và python.exe. Nếu chưa có, Setup tải MSI chính thức, xác minh chữ ký The Document Foundation rồi giải nén runtime riêng vào `Penteye Notes/Office/runtime`. Windows có thể hiện UAC; nếu bị từ chối hoặc cài lỗi, Setup dừng trước khi báo hoàn tất và cho thử lại. Không chọn Office thì không tải LibreOffice. DeepTutor vẫn chuẩn bị khi bật.
+
+Log lỗi nằm tại `Penteye Notes/Office/install.log` và `msiexec.log` trong thư mục cài. Windows 10/11 dùng cửa sổ Office nền đặc, không backdrop hoặc bóng đổ DWM.

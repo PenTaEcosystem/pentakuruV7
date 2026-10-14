@@ -76,14 +76,14 @@ def desktop(request):
             "--norestore", "--nodefault", "--nofirststartwizard"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        deadline = time.monotonic() + 25
+        deadline = time.monotonic() + 120
         while True:
             try:
                 context = resolver.resolve(address)
                 break
             except Exception:
                 if time.monotonic() > deadline:
-                    raise ValueError("Không kết nối được LibreOffice trong 25 giây.")
+                    raise ValueError("Không kết nối được LibreOffice trong 120 giây.")
                 time.sleep(.15)
     return context.ServiceManager.createInstanceWithContext(
         "com.sun.star.frame.Desktop", context)

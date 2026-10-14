@@ -1,0 +1,19 @@
+{
+  "tested_at": "2026-10-14T09:11:35.964256+00:00",
+  "office_msi": "26.8.1",
+  "official_signature_required": true,
+  "private_runtime_layout": "runtime/program",
+  "private_runtime_creation": {
+    "Word": true,
+    "Excel": true,
+    "PowerPoint": true,
+    "overwrite_rejected": true,
+    "reopen": true
+  },
+  "setup_selected_office_real_existing_runtime": true,
+  "setup_office_failure_blocks_copy": true,
+  "installer_selection_upgrade_uninstall": true,
+  "vc_prerequisite_simulations": 10,
+  "first_launch_timeout_seconds": 120,
+  "clean_windows_11_machine_tested": false
+}
