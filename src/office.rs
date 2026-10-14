@@ -164,7 +164,7 @@ impl State {
         self.chat.clear();
         self.prompt.clear();
         self.status.clear();
-        self.discard_reply = true;
+        self.discard_reply = self.job.is_some();
     }
 }
 
@@ -681,6 +681,10 @@ mod tests {
             chat: vec![(false, "old reply".into())],
             prompt: "old draft".into(),
             status: "old status".into(),
+            job: Some(system::Job::spawn(
+                &eframe::egui::Context::default(),
+                || Ok(ResultItem::Updated(Vec::new())),
+            )),
             ..State::default()
         };
         state.clear_chat();

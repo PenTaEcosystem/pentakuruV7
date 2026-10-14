@@ -90,6 +90,7 @@ impl PentaKuru {
                 }
                 self.office.chat.push((false, self.office.status.clone()));
             }
+            self.office.discard_reply = false;
         }
         if self.prefs.utilities.enable_office
             && !self.smoke_test
