@@ -1,9 +1,17 @@
 ; Build with Inno Setup 6.7.3+; no account credentials are embedded.
 #define Root AddBackslash(SourcePath) + ".."
+#include Root + "\dist\prerequisites\vc-runtime-version.iss"
 #ifdef PentaKuruTest
+  #ifndef PentaKuruRealRuntimeCheck
+    #define PentaKuruRuntimeSimulation
+  #endif
   #define InstallerId "{{E85C7981-7822-482D-AD2A-C87F86B657CA}"
   #define InstallerOutput Root + "\.build\installer-test"
-  #define InstallerName "PentaKuru-Setup-Test"
+  #ifdef PentaKuruRealRuntimeCheck
+    #define InstallerName "PentaKuru-Setup-Test-RealRuntime"
+  #else
+    #define InstallerName "PentaKuru-Setup-Test"
+  #endif
 #else
   #define InstallerId "{{4C845C79-7719-495E-A2E2-67DD1A9A8E49}"
   #define InstallerOutput Root + "\dist"
@@ -12,7 +20,7 @@
 [Setup]
 AppId={#InstallerId}
 AppName=PentaKuru
-AppVersion=2026.10.13
+AppVersion=2026.10.14
 AppPublisher=Pentasys
 DefaultDirName={localappdata}\Programs\PentaKuru
 DefaultGroupName=PentaKuru
@@ -108,6 +116,7 @@ Name: "uitars"; Description: "UI-TARS — thao tác máy tính bằng AI"; Flags
 Name: "desktopicon"; Description: "Tạo biểu tượng trên Desktop"; Flags: unchecked
 
 [Files]
+Source: "{#Root}\dist\prerequisites\vc_redist.x64.exe"; Flags: dontcopy
 Source: "{#Root}\target\release\pentakuru.exe"; DestDir: "{app}"; DestName: "PentaKuru.exe"; Flags: ignoreversion; Components: core
 Source: "{#Root}\LICENSE"; DestDir: "{app}"; Components: core
 Source: "{#Root}\LICENSE-PENTEYE-MIT"; DestDir: "{app}"; Components: core
@@ -129,12 +138,13 @@ Name: "{group}\Gỡ PentaKuru"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\PentaKuru"; Filename: "{app}\PentaKuru.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\PentaKuru.exe"; Description: "Mở PentaKuru ngay"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\PentaKuru.exe"; Description: "Mở PentaKuru ngay"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent; Check: VcRuntimeCanLaunch
 
 [UninstallDelete]
 Type: files; Name: "{app}\installation-options.json"
 
 [Code]
+#include "vc-runtime-check.iss"
 function LegacyAutostartEnabled: Boolean;
 begin
 #ifdef PentaKuruTest
@@ -154,6 +164,7 @@ var
   Plan, PlanPath: String;
 begin
   if CurStep = ssPostInstall then begin
+    Log('VC_RUNTIME_LAUNCH_READY=' + IntToStr(Ord(VcRuntimeCanLaunch)));
     Plan := '{"schema":1,"installation_id":"' + GetDateTimeString('yyyymmddhhnnsszzz', '-', ':') + '",';
     Plan := Plan + '"notes":' + SelectedBool('notes') + ',"search":' + SelectedBool('search');
     Plan := Plan + ',"spell":' + SelectedBool('spell') + ',"sally":' + SelectedBool('sally');
