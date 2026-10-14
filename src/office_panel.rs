@@ -21,12 +21,27 @@ impl PentaKuru {
                 }
                 Ok(office::ResultItem::Labeled(files)) => {
                     self.office.files = files;
+                    self.office.library_open = true;
+                    self.office.filter = None;
+                    self.office.label.clear();
+                    self.office.query.clear();
                     self.office.status = "Đã dán nhãn AI theo thư mục.".into();
                 }
-                Ok(office::ResultItem::Opened(file, dirty)) => {
-                    if !self.office.files.iter().any(|item| item.path == file.path) {
+                Ok(office::ResultItem::Opened(mut file, dirty)) => {
+                    file.last_opened = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |duration| duration.as_nanos() as u64);
+                    if let Some(saved) = self
+                        .office
+                        .files
+                        .iter_mut()
+                        .find(|item| item.path == file.path)
+                    {
+                        saved.last_opened = file.last_opened;
+                    } else {
                         self.office.files.push(file.clone());
                     }
+                    let _ = office::save_library(&self.office.files);
                     self.office.focused = Some(file.path.clone());
                     if let Some(session) = self
                         .office
@@ -66,7 +81,10 @@ impl PentaKuru {
                 Ok(office::ResultItem::Installed(message)) => self.office.status = message,
                 Err(error) => self.office.status = error,
             }
-            if chat_reply {
+            if chat_reply && self.office.discard_reply {
+                self.office.status.clear();
+            }
+            if chat_reply && !self.office.discard_reply {
                 if self.office.chat.len() >= 60 {
                     self.office.chat.remove(0);
                 }
@@ -173,21 +191,34 @@ impl PentaKuru {
             egui::ViewportBuilder::default()
                 .with_title("PentaKuru · Office")
                 .with_inner_size([
-                    380.0,
                     if self.office.library_open {
-                        380.0
-                    } else if self.office.operation == 3 || !self.office.chat.is_empty() {
-                        270.0
+                        480.0
                     } else {
-                        210.0
+                        400.0
+                    },
+                    if self.office.library_open {
+                        560.0
+                    } else if self.office.operation == 3 || !self.office.chat.is_empty() {
+                        300.0
+                    } else {
+                        240.0
                     },
                 ])
-                .with_min_inner_size([320.0, 180.0])
+                .with_min_inner_size([
+                    360.0,
+                    if self.office.library_open {
+                        360.0
+                    } else {
+                        220.0
+                    },
+                ])
                 .with_resizable(true)
                 .with_always_on_top(),
             |ui, _| {
                 if ui.input(|i| i.viewport().close_requested()) {
                     self.office_open = false;
+                    self.office.clear_chat();
+                    self.office.cancel.store(true, Ordering::Relaxed);
                 }
                 egui::CentralPanel::default()
                     .frame(egui::Frame::new().fill(theme::PANEL).inner_margin(10))
@@ -215,6 +246,11 @@ impl PentaKuru {
             .clicked()
             {
                 self.office.library_open = !self.office.library_open;
+                if self.office.library_open {
+                    self.office.filter = None;
+                    self.office.label.clear();
+                    self.office.query.clear();
+                }
             }
             if office_icon(ui, theme::Glyph::Settings, "Cài đặt Office", true, false).clicked()
             {
@@ -242,6 +278,17 @@ impl PentaKuru {
                     office::classify(files, &ai, &cancel)
                 }));
             }
+            if office_icon(
+                ui,
+                theme::Glyph::Plus,
+                "Hội thoại mới · xóa chat cũ",
+                !busy,
+                false,
+            )
+            .clicked()
+            {
+                self.office.clear_chat();
+            }
             if busy {
                 ui.spinner();
                 if office_icon(ui, theme::Glyph::Stop, "Dừng thao tác", true, false).clicked() {
@@ -253,7 +300,7 @@ impl PentaKuru {
         if self.office.library_open {
             ui.add(
                 egui::TextEdit::singleline(&mut self.office.query)
-                    .font(egui::FontId::proportional(12.0))
+                    .font(egui::FontId::proportional(14.0))
                     .hint_text("Tìm tên, thư mục hoặc nhãn…")
                     .desired_width(f32::INFINITY),
             );
@@ -329,8 +376,48 @@ impl PentaKuru {
                     ),
                 );
             });
+            let mut labels = std::collections::BTreeMap::<String, usize>::new();
+            for file in &self.office.files {
+                for label in &file.labels {
+                    *labels.entry(label.clone()).or_default() += 1;
+                }
+            }
+            if !labels.is_empty() {
+                egui::ScrollArea::vertical()
+                    .id_salt("office-labels")
+                    .min_scrolled_height(20.0)
+                    .max_height(80.0)
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            if ui
+                                .selectable_label(self.office.label.is_empty(), "Tất cả nhãn")
+                                .clicked()
+                            {
+                                self.office.label.clear();
+                            }
+                            for (label, count) in labels {
+                                if ui
+                                    .selectable_label(
+                                        self.office.label == label,
+                                        format!("{label} ({count})"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.office.label = label;
+                                    self.office.query.clear();
+                                    self.office.filter = None;
+                                }
+                            }
+                        });
+                    });
+            }
+            if !self.office.status.is_empty()
+                && !self.office.status.contains("tài liệu · nhãn theo thư mục")
+            {
+                theme::caption(ui, &self.office.status);
+            }
             let query = self.office.query.trim().to_lowercase();
-            let files: Vec<_> = self
+            let mut files: Vec<_> = self
                 .office
                 .files
                 .iter()
@@ -343,13 +430,26 @@ impl PentaKuru {
                 })
                 .cloned()
                 .collect();
-            theme::caption(ui, format!("{} tài liệu", files.len()));
-            let height = (ui.available_height() - 235.0).clamp(40.0, 150.0);
+            files.sort_by_cached_key(|file| std::cmp::Reverse(file.last_opened));
+            theme::caption(
+                ui,
+                format!(
+                    "{} tài liệu · vừa mở ở đầu · cuộn để xem tất cả",
+                    files.len()
+                ),
+            );
+            let height = (ui.available_height()
+                - if self.office.label_edit.is_some() {
+                    40.0
+                } else {
+                    4.0
+                })
+            .max(28.0);
             egui::ScrollArea::vertical()
                 .id_salt("office-library")
                 .min_scrolled_height(20.0)
                 .max_height(height)
-                .show_rows(ui, 24.0, files.len(), |ui, range| {
+                .show_rows(ui, 28.0, files.len(), |ui, range| {
                     for file in &files[range] {
                         let active = self.office.active.iter().any(|s| s.file.path == file.path);
                         let label = egui::RichText::new(format!(
@@ -357,7 +457,7 @@ impl PentaKuru {
                             if active { "• " } else { "" },
                             file.name
                         ))
-                        .size(12.0)
+                        .size(14.0)
                         .color(if active {
                             theme::TEXT
                         } else {
@@ -415,6 +515,12 @@ impl PentaKuru {
                 }
             });
         }
+        if self.office.library_open {
+            if let Some(file) = open_file {
+                self.open_office_file(ui.ctx(), file);
+            }
+            return;
+        }
         let mut detach = None;
         if !self.office.active.is_empty() {
             theme::caption(ui, "Đang làm việc");
@@ -445,7 +551,7 @@ impl PentaKuru {
                                 session.file.name,
                                 if session.dirty { " *" } else { "" }
                             ))
-                            .size(12.0)
+                            .size(14.0)
                             .color(if focused {
                                 theme::TEXT
                             } else {
@@ -453,13 +559,17 @@ impl PentaKuru {
                             });
                             let response = ui
                                 .allocate_ui_with_layout(
-                                    egui::vec2((ui.available_width() - 24.0).max(80.0), 22.0),
+                                    egui::vec2((ui.available_width() - 24.0).max(80.0), 26.0),
                                     egui::Layout::left_to_right(egui::Align::Center),
                                     |ui| {
-                                        ui.add_enabled(
-                                            !busy,
-                                            egui::Button::new(text).frame(false).truncate(),
-                                        )
+                                        ui.add_enabled_ui(!busy, |ui| {
+                                            ui.add(
+                                                egui::Label::new(text)
+                                                    .truncate()
+                                                    .sense(egui::Sense::click()),
+                                            )
+                                        })
+                                        .inner
                                     },
                                 )
                                 .inner
@@ -502,18 +612,7 @@ impl PentaKuru {
             }
         }
         if let Some(file) = open_file {
-            if !file.kind.enabled(&self.prefs.office) {
-                self.office.status =
-                    format!("Bật {} trong Settings để mở tài liệu.", file.kind.label());
-            } else {
-                let settings = self.prefs.office.clone();
-                self.office.cancel.store(false, Ordering::Relaxed);
-                self.office.job = Some(system::Job::spawn(ui.ctx(), move || {
-                    office::call(&settings, &file.path, "open", json!({})).map(|v| {
-                        office::ResultItem::Opened(file, v["dirty"].as_bool().unwrap_or(false))
-                    })
-                }));
-            }
+            self.open_office_file(ui.ctx(), file);
         }
         let mut action = None;
         let mut create_kind = None;
@@ -548,7 +647,7 @@ impl PentaKuru {
                                         .size(10.0)
                                         .color(theme::MUTED),
                                 );
-                                ui.label(egui::RichText::new(text).size(12.0).color(theme::TEXT));
+                                ui.label(egui::RichText::new(text).size(14.0).color(theme::TEXT));
                             }
                         });
                 }
@@ -567,7 +666,7 @@ impl PentaKuru {
                 ui.horizontal(|ui| {
                     ui.add(
                         egui::TextEdit::multiline(&mut self.office.prompt)
-                            .font(egui::FontId::proportional(12.0))
+                            .font(egui::FontId::proportional(14.0))
                             .hint_text("Nhắn yêu cầu chỉnh tài liệu…")
                             .desired_rows(1)
                             .desired_width((ui.available_width() - 38.0).max(100.0))
@@ -676,7 +775,22 @@ impl PentaKuru {
             self.run_office_action(ui, action);
         }
     }
+    fn open_office_file(&mut self, ctx: &egui::Context, file: office::File) {
+        if !file.kind.enabled(&self.prefs.office) {
+            self.office.status =
+                format!("Bật {} trong Settings để mở tài liệu.", file.kind.label());
+        } else {
+            let settings = self.prefs.office.clone();
+            self.office.cancel.store(false, Ordering::Relaxed);
+            self.office.job = Some(system::Job::spawn(ctx, move || {
+                office::call(&settings, &file.path, "open", json!({})).map(|v| {
+                    office::ResultItem::Opened(file, v["dirty"].as_bool().unwrap_or(false))
+                })
+            }));
+        }
+    }
     fn run_office_action(&mut self, ui: &mut egui::Ui, action: usize) {
+        self.office.discard_reply = false;
         let paths = if self.office.scope == 2 {
             self.office
                 .active

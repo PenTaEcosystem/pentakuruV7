@@ -92,6 +92,8 @@ pub struct File {
     pub kind: Kind,
     pub labels: Vec<String>,
     pub manual: bool,
+    #[serde(default)]
+    pub last_opened: u64,
 }
 #[derive(Clone)]
 pub struct Session {
@@ -117,6 +119,7 @@ pub struct State {
     pub label: String,
     pub prompt: String,
     pub chat: Vec<(bool, String)>,
+    pub discard_reply: bool,
     pub operation: usize,
     pub scope: usize,
     pub font: String,
@@ -141,6 +144,7 @@ impl Default for State {
             label: String::new(),
             prompt: String::new(),
             chat: Vec::new(),
+            discard_reply: false,
             operation: 0,
             scope: 1,
             font: "Liberation Serif".into(),
@@ -155,6 +159,15 @@ impl Default for State {
         }
     }
 }
+impl State {
+    pub fn clear_chat(&mut self) {
+        self.chat.clear();
+        self.prompt.clear();
+        self.status.clear();
+        self.discard_reply = true;
+    }
+}
+
 fn library_path() -> PathBuf {
     system::data_dir().join("Office/library.json")
 }
@@ -282,6 +295,7 @@ pub fn index(settings: &Settings, cancel: &AtomicBool) -> Result<Vec<File>, Stri
             files.push(File {
                 name: entry.file_name().to_string_lossy().into(),
                 manual: old.get(&path).is_some_and(|f| f.manual),
+                last_opened: old.get(&path).map_or(0, |f| f.last_opened),
                 path,
                 kind,
                 labels,
@@ -363,6 +377,7 @@ pub fn create(settings: &Settings, kind: Kind) -> Result<ResultItem, String> {
                 kind,
                 labels: vec!["PentaKuru".into()],
                 manual: false,
+                last_opened: 0,
             },
             value["dirty"].as_bool().unwrap_or(false),
         )),
@@ -660,6 +675,21 @@ pub fn classify(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn new_office_conversation_discards_previous_reply_and_draft() {
+        let mut state = State {
+            chat: vec![(false, "old reply".into())],
+            prompt: "old draft".into(),
+            status: "old status".into(),
+            ..State::default()
+        };
+        state.clear_chat();
+        assert!(state.chat.is_empty());
+        assert!(state.prompt.is_empty());
+        assert!(state.status.is_empty());
+        assert!(state.discard_reply);
+    }
+
     #[test]
     fn formats_and_defaults() {
         assert_eq!(Kind::from_path(Path::new("A.PPTX")), Some(Kind::PowerPoint));

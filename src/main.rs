@@ -462,6 +462,7 @@ impl PentaKuru {
                         kind: office::Kind::Word,
                         labels: vec!["Giáo án".into()],
                         manual: false,
+                        last_opened: 0,
                     };
                     app.office.focused = Some(file.path.clone());
                     app.office.active.push(office::Session {
@@ -486,6 +487,23 @@ impl PentaKuru {
                                 kind: file_kind,
                                 labels: vec!["Dự án".into()],
                                 manual: false,
+                                last_opened: 0,
+                            });
+                        }
+                    }
+                    if kind == "office-library" {
+                        for i in 1..=15 {
+                            app.office.files.push(office::File {
+                                path: PathBuf::from(format!(".build/ui-office/document-{i}.docx")),
+                                name: format!("Tài liệu mẫu {i:02}.docx"),
+                                kind: office::Kind::Word,
+                                labels: vec![if i % 2 == 0 {
+                                    "Hợp đồng".into()
+                                } else {
+                                    "Học tập".into()
+                                }],
+                                manual: false,
+                                last_opened: i,
                             });
                         }
                     }
@@ -1169,6 +1187,82 @@ Một giao diện đơn giản để tập trung vào điều anh đang làm."
                         ui.separator();
 
                         egui::ScrollArea::vertical().show(ui, |ui| {
+                            // 5. Trợ lý AI & Não bộ hệ thống
+                            egui::CollapsingHeader::new("API key & mô hình AI").default_open(true).show(ui, |ui| {
+                                ui.label(egui::RichText::new("🔑 Khóa não bộ AI duy nhất (Dùng chung cho Chat, Sửa chính tả, RAG và UI Agent @ui)").strong().color(Color32::from_rgb(120, 200, 255)));
+                                theme::caption(ui, "Nhập API key và chọn mô hình. Office và DeepTutor dùng cấu hình AI chung khi bật đồng bộ.");
+
+                                ui.add_space(4.0);
+
+                                // Provider
+                                ui.horizontal(|ui| {
+                                    ui.label("Nhà cung cấp:");
+                                    egui::ComboBox::from_id_salt("provider_select")
+                                        .selected_text(self.prefs.ai.provider.label())
+                                        .show_ui(ui, |ui| {
+                                            for p in ai::Provider::ALL {
+                                                ui.selectable_value(&mut self.prefs.ai.provider, p, p.label());
+                                            }
+                                        });
+                                });
+
+                                // API Key Box
+                                ui.horizontal(|ui| {
+                                    ui.label("API Key:");
+                                    let text_edit = if self.show_api_key {
+                                        egui::TextEdit::singleline(&mut self.prefs.ai.api_key)
+                                    } else {
+                                        egui::TextEdit::singleline(&mut self.prefs.ai.api_key).password(true)
+                                    };
+                                    let resp = ui.add(text_edit.desired_width(220.0).hint_text("Dán API key tại đây..."));
+                                    if resp.changed() {
+                                        save = true;
+                                    }
+                                    if ui.button(if self.show_api_key { "Ẩn" } else { "Hiện" }).clicked() {
+                                        self.show_api_key = !self.show_api_key;
+                                    }
+                                });
+
+                                // Tự động phát hiện khi key thay đổi
+                                if self.prefs.ai.api_key.trim() != self.last_scanned_key.trim() {
+                                    self.last_scanned_key = self.prefs.ai.api_key.trim().to_string();
+                                    if let Some(detected) = ai::Provider::detect(&self.last_scanned_key) {
+                                        self.prefs.ai.provider = detected;
+                                    }
+                                    self.trigger_fetch_models(ui.ctx());
+                                }
+
+                                ui.horizontal(|ui| {
+                                    if ui.button("Cập nhật danh sách mô hình").clicked() {
+                                        self.trigger_fetch_models(ui.ctx());
+                                    }
+                                    if self.ai_models_job.is_some() {
+                                        ui.spinner();
+                                        ui.label("Đang tải danh sách mô hình...");
+                                    }
+                                });
+
+                                // Chọn Model
+                                if !self.prefs.ai.models.is_empty() {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Mô hình AI:");
+                                        egui::ComboBox::from_id_salt("model_select")
+                                            .selected_text(if self.prefs.ai.model.is_empty() { "Chọn mô hình" } else { &self.prefs.ai.model })
+                                            .show_ui(ui, |ui| {
+                                                for m in &self.prefs.ai.models {
+                                                    ui.selectable_value(&mut self.prefs.ai.model, m.clone(), m);
+                                                }
+                                            });
+                                    });
+                                } else {
+                                    ui.label(egui::RichText::new("Chưa có danh sách mô hình. Hãy nhập API key và bấm Cập nhật.").weak());
+                                }
+                            });
+
+
+
+                            ui.add_space(8.0);
+
                             // 1. Khởi động cùng Windows
                             ui.group(|ui| {
                                 ui.label(egui::RichText::new("Khởi động cùng Windows").strong());
@@ -1425,82 +1519,6 @@ Một giao diện đơn giản để tập trung vào điều anh đang làm."
                                 });
                                 theme::caption(ui, "Mẹo: Bấm nút để đổi phím. Bấm Esc để hủy, Delete để xóa. Nếu phím Alt + Z bị Slack hoặc GeForce chiếm, hãy bấm 'Đổi sang Ctrl + Alt + Z' ở trên.");
                             });
-
-                            ui.add_space(8.0);
-
-                            // 5. Trợ lý AI & Não bộ hệ thống
-                            ui.collapsing("Cấu hình Trợ lý AI & Não bộ hệ thống (Gemini / OpenAI)", |ui| {
-                                ui.label(egui::RichText::new("🔑 Khóa não bộ AI duy nhất (Dùng chung cho Chat, Sửa chính tả, RAG và UI Agent @ui)").strong().color(Color32::from_rgb(120, 200, 255)));
-                                theme::caption(ui, "Chỉ cần nhập API Key Gemini tại đây một lần duy nhất, toàn bộ hệ thống (bao gồm cả tác vụ tự động điều khiển máy tính @ui) sẽ hoạt động ngay lập tức.");
-
-                                ui.add_space(4.0);
-
-                                // Provider
-                                ui.horizontal(|ui| {
-                                    ui.label("Nhà cung cấp:");
-                                    egui::ComboBox::from_id_salt("provider_select")
-                                        .selected_text(self.prefs.ai.provider.label())
-                                        .show_ui(ui, |ui| {
-                                            for p in ai::Provider::ALL {
-                                                ui.selectable_value(&mut self.prefs.ai.provider, p, p.label());
-                                            }
-                                        });
-                                });
-
-                                // API Key Box
-                                ui.horizontal(|ui| {
-                                    ui.label("API Key:");
-                                    let text_edit = if self.show_api_key {
-                                        egui::TextEdit::singleline(&mut self.prefs.ai.api_key)
-                                    } else {
-                                        egui::TextEdit::singleline(&mut self.prefs.ai.api_key).password(true)
-                                    };
-                                    let resp = ui.add(text_edit.desired_width(220.0).hint_text("Dán API key tại đây..."));
-                                    if resp.changed() {
-                                        save = true;
-                                    }
-                                    if ui.button(if self.show_api_key { "Ẩn" } else { "Hiện" }).clicked() {
-                                        self.show_api_key = !self.show_api_key;
-                                    }
-                                });
-
-                                // Tự động phát hiện khi key thay đổi
-                                if self.prefs.ai.api_key.trim() != self.last_scanned_key.trim() {
-                                    self.last_scanned_key = self.prefs.ai.api_key.trim().to_string();
-                                    if let Some(detected) = ai::Provider::detect(&self.last_scanned_key) {
-                                        self.prefs.ai.provider = detected;
-                                    }
-                                    self.trigger_fetch_models(ui.ctx());
-                                }
-
-                                ui.horizontal(|ui| {
-                                    if ui.button("Cập nhật danh sách mô hình").clicked() {
-                                        self.trigger_fetch_models(ui.ctx());
-                                    }
-                                    if self.ai_models_job.is_some() {
-                                        ui.spinner();
-                                        ui.label("Đang tải danh sách mô hình...");
-                                    }
-                                });
-
-                                // Chọn Model
-                                if !self.prefs.ai.models.is_empty() {
-                                    ui.horizontal(|ui| {
-                                        ui.label("Mô hình AI:");
-                                        egui::ComboBox::from_id_salt("model_select")
-                                            .selected_text(if self.prefs.ai.model.is_empty() { "Chọn mô hình" } else { &self.prefs.ai.model })
-                                            .show_ui(ui, |ui| {
-                                                for m in &self.prefs.ai.models {
-                                                    ui.selectable_value(&mut self.prefs.ai.model, m.clone(), m);
-                                                }
-                                            });
-                                    });
-                                } else {
-                                    ui.label(egui::RichText::new("Chưa có danh sách mô hình. Hãy nhập API key và bấm Cập nhật.").weak());
-                                }
-                            });
-
-
 
                             ui.add_space(8.0);
 
