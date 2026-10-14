@@ -766,6 +766,7 @@ impl PentaKuru {
                 office::Kind::PowerPoint => self.prefs.office.impress = true,
             }
             let settings = self.prefs.office.clone();
+            self.office.discard_reply = false;
             self.office.status = format!("Đang tạo {} mới…", kind.label());
             self.office.job = Some(system::Job::spawn(ui.ctx(), move || {
                 office::create(&settings, kind)
@@ -782,6 +783,7 @@ impl PentaKuru {
         } else {
             let settings = self.prefs.office.clone();
             self.office.cancel.store(false, Ordering::Relaxed);
+            self.office.discard_reply = false;
             self.office.job = Some(system::Job::spawn(ctx, move || {
                 office::call(&settings, &file.path, "open", json!({})).map(|v| {
                     office::ResultItem::Opened(file, v["dirty"].as_bool().unwrap_or(false))
