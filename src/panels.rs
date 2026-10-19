@@ -35,9 +35,9 @@ impl PentaKuru {
                 .with_inner_size(if self.ui_preview.as_deref() == Some("notes-small") {
                     [660.0, 460.0]
                 } else {
-                    [900.0, 620.0]
+                    [480.0, 560.0]
                 })
-                .with_min_inner_size([660.0, 460.0])
+                .with_min_inner_size([380.0, 460.0])
                 .with_resizable(true)
                 .with_decorations(false)
                 .with_transparent(true)
@@ -119,6 +119,11 @@ impl PentaKuru {
                 160.0_f32
             } else {
                 ai_height(has_content, lines)
+                    + if !has_content && self.notes_mgr.notes.iter().any(|note| note.ai_shared) {
+                        24.0
+                    } else {
+                        0.0
+                    }
             })
             .max(if self.ai_menu_open { 220.0 } else { 0.0 })
             .min((screen_rect.height() - 64.0).max(160.0));
@@ -151,6 +156,7 @@ impl PentaKuru {
     }
 
     pub(super) fn notes_ui(&mut self, viewport_ui: &mut egui::Ui) -> bool {
+        self.poll_workspace();
         let mut open = true;
 
         let ctx = viewport_ui.ctx().clone();
@@ -171,7 +177,7 @@ impl PentaKuru {
         }
 
         egui::Panel::top("notes-titlebar")
-            .frame(section_frame(theme::PANEL))
+            .frame(egui::Frame::new().fill(theme::PANEL).inner_margin(10))
             .show(viewport_ui, |ui| {
                 let avail_w = ui.available_width();
                 let titlebar_rect = Rect::from_min_size(ui.cursor().min, Vec2::new(avail_w, 36.0));
@@ -189,8 +195,12 @@ impl PentaKuru {
 
                 ui.horizontal(|ui| {
                     theme::icon(ui, Glyph::File, "Ghi chú", true);
-                    ui.label(egui::RichText::new("Ghi chú").size(20.0).strong());
-                    theme::caption(ui, "PENTAKURU");
+                    if ui
+                        .selectable_label(self.workspace.library_open, "Thư viện")
+                        .clicked()
+                    {
+                        self.workspace.library_open = !self.workspace.library_open;
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if theme::icon(ui, Glyph::Close, "Đóng · Esc", true).clicked() {
                             open = false;
@@ -218,8 +228,12 @@ impl PentaKuru {
                         {
                             ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
                         }
-                        if ui.button("Ghi chú mới").clicked() {
+                        if theme::toolbar_icon(ui, Glyph::Plus, "Tạo note mới", true, false)
+                            .clicked()
+                        {
                             self.notes_mgr.create_note("Ghi chú mới", "");
+                            self.workspace.board_open = false;
+                            self.workspace.profile_open = false;
                         }
                         if theme::icon(ui, Glyph::Folder, "Mở thư mục lưu ghi chú", true).clicked()
                         {
@@ -229,145 +243,185 @@ impl PentaKuru {
                 });
             });
 
-        egui::Panel::left("notes-library")
-            .exact_size(250.0)
-            .resizable(false)
-            .frame(section_frame(theme::SIDEBAR))
-            .show(viewport_ui, |ui| {
-                let previous_folder = self.notes_mgr.selected_folder.clone();
-                theme::caption(ui, "THƯ VIỆN");
-                ui.horizontal(|ui| {
-                    egui::ComboBox::from_id_salt("notes-folder")
-                        .width(164.0)
-                        .selected_text(&self.notes_mgr.selected_folder)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.notes_mgr.selected_folder,
-                                "Tất cả".to_owned(),
-                                "Tất cả ghi chú",
-                            );
-                            for folder in &self.notes_mgr.folders {
+        if self.workspace.library_open && !self.workspace.board_open && !self.workspace.profile_open
+        {
+            egui::Panel::left("notes-library")
+                .exact_size(if viewport_ui.available_width() < 600.0 {
+                    155.0
+                } else {
+                    210.0
+                })
+                .resizable(false)
+                .frame(section_frame(theme::SIDEBAR))
+                .show(viewport_ui, |ui| {
+                    let previous_folder = self.notes_mgr.selected_folder.clone();
+                    theme::caption(ui, "THƯ VIỆN");
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt("notes-folder")
+                            .width((ui.available_width() - 35.0).max(75.0))
+                            .selected_text(&self.notes_mgr.selected_folder)
+                            .show_ui(ui, |ui| {
                                 ui.selectable_value(
                                     &mut self.notes_mgr.selected_folder,
-                                    folder.clone(),
-                                    folder,
+                                    "Tất cả".to_owned(),
+                                    "Tất cả ghi chú",
                                 );
+                                for folder in &self.notes_mgr.folders {
+                                    ui.selectable_value(
+                                        &mut self.notes_mgr.selected_folder,
+                                        folder.clone(),
+                                        folder,
+                                    );
+                                }
+                            });
+                        if theme::icon(ui, Glyph::Plus, "Thêm thư mục", true).clicked() {
+                            self.folder_form = !self.folder_form;
+                        }
+                    });
+                    if self.folder_form {
+                        ui.horizontal(|ui| {
+                            let resp = ui.add_sized(
+                                [150.0, 30.0],
+                                egui::TextEdit::singleline(&mut self.new_folder_input)
+                                    .hint_text("Tên thư mục"),
+                            );
+                            if (ui.button("Tạo").clicked()
+                                || (resp.has_focus()
+                                    && ui.input(|i| i.key_pressed(egui::Key::Enter))))
+                                && !self.new_folder_input.trim().is_empty()
+                            {
+                                self.notes_mgr.add_folder(&self.new_folder_input);
+                                self.new_folder_input.clear();
+                                self.folder_form = false;
                             }
                         });
-                    if theme::icon(ui, Glyph::Plus, "Thêm thư mục", true).clicked() {
-                        self.folder_form = !self.folder_form;
                     }
-                });
-                if self.folder_form {
-                    ui.horizontal(|ui| {
-                        let resp = ui.add_sized(
-                            [150.0, 30.0],
-                            egui::TextEdit::singleline(&mut self.new_folder_input)
-                                .hint_text("Tên thư mục"),
-                        );
-                        if (ui.button("Tạo").clicked()
-                            || (resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))))
-                            && !self.new_folder_input.trim().is_empty()
-                        {
-                            self.notes_mgr.add_folder(&self.new_folder_input);
-                            self.new_folder_input.clear();
-                            self.folder_form = false;
-                        }
-                    });
-                }
-                if previous_folder != self.notes_mgr.selected_folder {
-                    self.notes_mgr.selected_note_id =
-                        self.notes_mgr.visible_notes().first().map(|n| n.id.clone());
-                    self.pending_note_delete = false;
-                }
-                ui.add_space(8.0);
-                ui.add_sized(
-                    [ui.available_width(), 36.0],
-                    egui::TextEdit::singleline(&mut self.notes_mgr.search_query)
-                        .hint_text("Tìm trong ghi chú")
-                        .margin(10),
-                );
-                let items: Vec<_> = self
-                    .notes_mgr
-                    .visible_notes()
-                    .into_iter()
-                    .map(|n| {
-                        (
-                            n.id.clone(),
-                            n.title.clone(),
-                            n.updated_at.clone(),
-                            n.attachments.len(),
-                            n.icon.clone(),
-                        )
-                    })
-                    .collect();
-                theme::caption(ui, format!("{} ghi chú", items.len()));
-                egui::ScrollArea::vertical()
-                    .id_salt("note-list-scroll")
-                    .show(ui, |ui| {
-                        for (id, title, updated, attachments, icon) in items {
-                            let selected = self.notes_mgr.selected_note_id.as_ref() == Some(&id);
-                            let response = egui::Frame::new()
-                                .fill(if selected {
-                                    theme::SURFACE
-                                } else {
-                                    theme::SIDEBAR
-                                })
-                                .stroke(Stroke::new(
-                                    1.0,
-                                    if selected {
-                                        theme::BORDER
+                    if previous_folder != self.notes_mgr.selected_folder {
+                        self.notes_mgr.selected_note_id =
+                            self.notes_mgr.visible_notes().first().map(|n| n.id.clone());
+                        self.pending_note_delete = false;
+                    }
+                    ui.add_space(8.0);
+                    ui.add_sized(
+                        [ui.available_width(), 36.0],
+                        egui::TextEdit::singleline(&mut self.notes_mgr.search_query)
+                            .hint_text("Tìm trong ghi chú")
+                            .margin(10),
+                    );
+                    let items: Vec<_> = self
+                        .notes_mgr
+                        .visible_notes()
+                        .into_iter()
+                        .map(|n| {
+                            (
+                                n.id.clone(),
+                                n.title.clone(),
+                                n.updated_at.clone(),
+                                n.attachments.len(),
+                                n.icon.clone(),
+                            )
+                        })
+                        .collect();
+                    theme::caption(ui, format!("{} ghi chú", items.len()));
+                    egui::ScrollArea::vertical()
+                        .id_salt("note-list-scroll")
+                        .show(ui, |ui| {
+                            for (id, title, updated, attachments, icon) in items {
+                                let selected =
+                                    self.notes_mgr.selected_note_id.as_ref() == Some(&id);
+                                let response = egui::Frame::new()
+                                    .fill(if selected {
+                                        theme::SURFACE
                                     } else {
                                         theme::SIDEBAR
-                                    },
-                                ))
-                                .corner_radius(10)
-                                .inner_margin(12)
-                                .show(ui, |ui| {
-                                    ui.set_width(ui.available_width());
-                                    ui.horizontal(|ui| {
-                                        let glyph = theme::glyph_from_name(&icon);
-                                        let (icon_rect, _) = ui
-                                            .allocate_exact_size(Vec2::splat(16.0), Sense::hover());
-                                        theme::draw_icon(
-                                            ui.painter(),
-                                            icon_rect.center(),
-                                            glyph,
-                                            if selected { theme::TEXT } else { theme::MUTED },
-                                        );
-                                        ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(title).size(14.0).strong(),
-                                            )
-                                            .truncate(),
-                                        );
-                                    });
-                                    theme::caption(ui, updated);
-                                    if attachments > 0 {
-                                        theme::caption(ui, format!("{attachments} tệp đính kèm"));
-                                    }
-                                })
-                                .response
-                                .interact(Sense::click());
-                            if response.clicked() {
-                                self.notes_mgr.selected_note_id = Some(id);
-                                self.pending_note_delete = false;
+                                    })
+                                    .stroke(Stroke::new(
+                                        1.0,
+                                        if selected {
+                                            theme::BORDER
+                                        } else {
+                                            theme::SIDEBAR
+                                        },
+                                    ))
+                                    .corner_radius(10)
+                                    .inner_margin(12)
+                                    .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.horizontal(|ui| {
+                                            let glyph = theme::glyph_from_name(&icon);
+                                            let (icon_rect, _) = ui.allocate_exact_size(
+                                                Vec2::splat(16.0),
+                                                Sense::hover(),
+                                            );
+                                            theme::draw_icon(
+                                                ui.painter(),
+                                                icon_rect.center(),
+                                                glyph,
+                                                if selected { theme::TEXT } else { theme::MUTED },
+                                            );
+                                            ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(title).size(14.0).strong(),
+                                                )
+                                                .truncate(),
+                                            );
+                                        });
+                                        theme::caption(ui, updated);
+                                        if attachments > 0 {
+                                            theme::caption(
+                                                ui,
+                                                format!("{attachments} tệp đính kèm"),
+                                            );
+                                        }
+                                    })
+                                    .response
+                                    .interact(Sense::click());
+                                if response.clicked() {
+                                    self.notes_mgr.selected_note_id = Some(id);
+                                    self.pending_note_delete = false;
+                                }
+                                if response.hovered() {
+                                    ui.painter().rect_stroke(
+                                        response.rect,
+                                        10,
+                                        Stroke::new(1.0, theme::BORDER),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                }
                             }
-                            if response.hovered() {
-                                ui.painter().rect_stroke(
-                                    response.rect,
-                                    10,
-                                    Stroke::new(1.0, theme::BORDER),
-                                    egui::StrokeKind::Inside,
-                                );
-                            }
-                        }
-                    });
-            });
+                        });
+                });
+        }
 
         egui::CentralPanel::default()
             .frame(section_frame(theme::PANEL))
             .show(viewport_ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    if ui.selectable_label(!self.workspace.board_open && !self.workspace.profile_open, "Ghi chú").clicked() {
+                        self.workspace.board_open = false;
+                        self.workspace.profile_open = false;
+                    }
+                    if ui.selectable_label(self.workspace.board_open, "Kanban").clicked() {
+                        self.workspace.board_open = true;
+                        self.workspace.profile_open = false;
+                    }
+                    if ui.selectable_label(self.workspace.profile_open, "Profile AI").clicked() {
+                        self.workspace.profile_open = true;
+                        self.workspace.board_open = false;
+                    }
+                });
+                if self.workspace.board_open { self.kanban_ui(ui); return; }
+                if self.workspace.profile_open {
+                    ui.heading("Ngữ cảnh AI từ ghi chú");
+                    theme::caption(ui, "AI tự lưu ý chính của note đã bật sau khi ngừng gõ 5 giây. Mỗi lần chat dùng các bản tóm tắt còn khớp với note, ưu tiên note đang mở; tối đa 16.000 ký tự tổng. Không đọc tệp đính kèm.");
+                    theme::caption(ui, "Note được gửi tới nhà cung cấp AI khi tự tóm tắt; ý chính được lưu trên máy và dùng trong chat về sau. Tắt AI ngừng cập nhật/chia sẻ mới, không xóa dữ liệu đã gửi hoặc lịch sử chat.");
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let profile = self.notes_mgr.ai_profile();
+                        if profile.is_empty() { ui.label("Chưa chia sẻ note nào. Bật nút AI trên note anh muốn AI biết."); }
+                        else { ui.label(profile); }
+                    });
+                    return;
+                }
                 let index = self
                     .notes_mgr
                     .selected_note_id
@@ -383,11 +437,12 @@ impl PentaKuru {
                 let note_icon = self.notes_mgr.notes[index].icon.clone();
                 let note_title = self.notes_mgr.notes[index].title.clone();
                 let note_updated = self.notes_mgr.notes[index].updated_at.clone();
+                if self.workspace.library_open {
                 ui.horizontal(|ui| {
                     theme::caption(ui, "Thư mục:");
                     let mut chosen_folder = note_folder.clone();
                     egui::ComboBox::from_id_salt("note-move-folder")
-                        .width(160.0)
+                        .width((ui.available_width() - 60.0).clamp(70.0, 160.0))
                         .selected_text(&note_folder)
                         .show_ui(ui, |ui| {
                             for f in &self.notes_mgr.folders {
@@ -400,14 +455,16 @@ impl PentaKuru {
                         self.notes_mgr.move_selected_note_to_folder(&chosen_folder);
                     }
                 });
+                }
                 ui.horizontal(|ui| {
                     let current_glyph = theme::glyph_from_name(&note_icon);
                     let (icon_rect, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
                     theme::draw_icon(ui.painter(), icon_rect.center(), current_glyph, theme::TEXT);
 
                     let mut chosen_icon = note_icon.clone();
+                    if self.workspace.library_open && ui.available_width() > 360.0 {
                     egui::ComboBox::from_id_salt("note-icon-picker")
-                        .width(130.0)
+                        .width(90.0)
                         .selected_text(
                             theme::NOTE_ICONS
                                 .iter()
@@ -432,22 +489,23 @@ impl PentaKuru {
                                 });
                             }
                         });
+                    }
                     if chosen_icon != note_icon {
                         self.notes_mgr.set_selected_note_icon(&chosen_icon);
                     }
 
                     ui.add_sized(
-                        [(ui.available_width() - 68.0).max(120.0), 36.0],
-                        egui::Label::new(egui::RichText::new(&note_title).size(24.0).strong())
+                        [(ui.available_width() - 42.0).max(64.0), 36.0],
+                        egui::Label::new(egui::RichText::new(&note_title).size(19.0).strong())
                             .truncate(),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("Xóa").clicked() {
+                        if theme::toolbar_icon(ui, Glyph::Trash, "Xóa ghi chú", true, false).clicked() {
                             self.pending_note_delete = !self.pending_note_delete;
                         }
                     });
                 });
-                theme::caption(ui, format!("Đã lưu · {}", note_updated));
+                self.note_connection_ui(ui, index);
                 if self.pending_note_delete {
                     let mut remove = false;
                     ui.horizontal(|ui| {
@@ -463,24 +521,49 @@ impl PentaKuru {
                         return;
                     }
                 }
-                ui.add_space(10.0);
-                let editor_height = (ui.available_height() - 90.0).max(120.0);
+                let editor_id = ui.make_persistent_id(("note-content", &self.notes_mgr.notes[index].id));
+                ui.horizontal_wrapped(|ui| {
+                    for (glyph, marker, help) in [(Glyph::Heading1, "# ", "Tiêu đề lớn"), (Glyph::Heading2, "## ", "Tiêu đề nhỏ"), (Glyph::Bold, "**", "In đậm phần chọn"), (Glyph::Italic, "*", "In nghiêng phần chọn")] {
+                        if theme::toolbar_icon(ui, glyph, help, !self.workspace.preview, false).clicked() {
+                            let mut state = egui::text_edit::TextEditState::load(&ctx, editor_id).unwrap_or_default();
+                            let range = state.cursor.char_range();
+                            let start = range.map_or(0, |range| usize::from(range.primary.index));
+                            let end = range.map_or(start, |range| usize::from(range.secondary.index));
+                            let previous_length = self.notes_mgr.notes[index].content.chars().count();
+                            crate::workspace::format_selection(&mut self.notes_mgr.notes[index].content, start, end, marker);
+                            let current_length = self.notes_mgr.notes[index].content.chars().count();
+                            let cursor = start.max(end).saturating_add(current_length).saturating_sub(previous_length).min(current_length);
+                            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(cursor))));
+                            state.store(&ctx, editor_id);
+                            self.notes_mgr.save_selected_note();
+                            ui.memory_mut(|memory| memory.request_focus(editor_id));
+                        }
+                    }
+                    if theme::toolbar_icon(ui, Glyph::Eye, "Xem / sửa định dạng", true, self.workspace.preview).clicked() { self.workspace.preview = !self.workspace.preview; }
+                });
+                ui.add_space(6.0);
+                let editor_height = (ui.available_height() - 60.0).max(120.0);
                 let mut changed = false;
                 egui::Frame::new()
                     .fill(theme::SIDEBAR)
                     .corner_radius(12)
-                    .inner_margin(18)
+                    .inner_margin(12)
                     .show(ui, |ui| {
-                        ui.set_min_height(editor_height - 36.0);
+                        ui.set_min_height(editor_height - 24.0);
                         egui::ScrollArea::vertical()
                             .id_salt("note-editor-scroll")
-                            .max_height(editor_height - 36.0)
+                            .max_height(editor_height - 24.0)
                             .show(ui, |ui| {
+                                if self.workspace.preview {
+                                    theme::render_markdown(ui, &self.notes_mgr.notes[index].content);
+                                    return;
+                                }
                                 changed = ui
                                     .add(
                                         egui::TextEdit::multiline(
                                             &mut self.notes_mgr.notes[index].content,
                                         )
+                                        .id(editor_id)
                                         .frame(egui::Frame::NONE)
                                         .font(egui::FontId::proportional(15.0))
                                         .desired_width(f32::INFINITY)
@@ -494,6 +577,7 @@ impl PentaKuru {
                     self.notes_mgr.save_selected_note();
                 }
                 let attachments = self.notes_mgr.notes[index].attachments.clone();
+                theme::caption(ui, format!("Đã lưu · {}", note_updated));
                 ui.add_space(2.0);
                 egui::CollapsingHeader::new(format!("Tệp đính kèm · {}", attachments.len())).show(
                     ui,
@@ -883,9 +967,16 @@ impl PentaKuru {
             })
             .show(viewport_ui, |ui| {
                 if !has_content {
+                    let shared = self
+                        .notes_mgr
+                        .notes
+                        .iter()
+                        .filter(|note| note.ai_shared)
+                        .count();
                     let height =
                         composer_height(&self.ai_prompt, (ui.available_width() - 114.0).max(1.0))
-                            + 22.0;
+                            + 22.0
+                            + if shared > 0 { 24.0 } else { 0.0 };
                     let rect = Rect::from_min_size(
                         ui.max_rect().min - Vec2::splat(10.0),
                         Vec2::new(ui.available_width() + 20.0, height),
@@ -897,6 +988,13 @@ impl PentaKuru {
                         Stroke::new(1.0, theme::BORDER),
                         egui::StrokeKind::Inside,
                     );
+                    if shared > 0 {
+                        ui.label(
+                            egui::RichText::new(format!("AI · {shared} note làm ngữ cảnh"))
+                                .small()
+                                .color(Color32::from_rgb(100, 220, 175)),
+                        );
+                    }
                 }
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                 ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);

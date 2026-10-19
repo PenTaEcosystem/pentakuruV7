@@ -1,6 +1,7 @@
 ﻿; Build with Inno Setup 6.7.3+; no account credentials are embedded.
 #define Root AddBackslash(SourcePath) + ".."
 #include Root + "\dist\prerequisites\vc-runtime-version.iss"
+#include Root + "\dist\prerequisites\office-runtime-version.iss"
 #ifdef PentaKuruTest
   #ifndef PentaKuruRealRuntimeCheck
     #define PentaKuruRuntimeSimulation
@@ -20,7 +21,7 @@
 [Setup]
 AppId={#InstallerId}
 AppName=PentaKuru
-AppVersion=2026.10.14
+AppVersion=2026.10.16
 AppPublisher=Pentasys
 DefaultDirName={localappdata}\Programs\PentaKuru
 DefaultGroupName=PentaKuru
@@ -60,7 +61,7 @@ ExitSetupTitle=Thoát bộ cài
 ExitSetupMessage=Cài đặt chưa hoàn tất. Anh có muốn thoát và cài lại sau không?
 SetupWindowTitle=Cài đặt PentaKuru
 WelcomeLabel1=Chào mừng đến với PentaKuru
-WelcomeLabel2=Bộ cài sẽ hướng dẫn anh chọn nơi cài và những tiện ích cần sử dụng.%n%nCó thể thay đổi tiện ích sau trong Settings. Office cài LibreOffice khi được chọn; DeepTutor tải runtime khi bật; Music và Clip cần kết nối Internet.%n%nBấm Tiếp tục để bắt đầu.
+WelcomeLabel2=Bộ cài sẽ hướng dẫn anh chọn nơi cài và những tiện ích cần sử dụng.%n%nCó thể thay đổi tiện ích sau trong Settings. LibreOffice đi kèm bộ cài và chỉ cài khi chọn Office; DeepTutor tải runtime khi bật; Music và Clip cần kết nối Internet.%n%nBấm Tiếp tục để bắt đầu.
 ButtonBack=< Quay lại
 ButtonNext=Tiếp tục >
 ButtonInstall=Cài đặt
@@ -76,7 +77,7 @@ SelectDirDesc=PentaKuru sẽ được cài vào thư mục nào?
 SelectDirLabel3=Bấm Tiếp tục để dùng thư mục này hoặc Duyệt để chọn thư mục khác.
 WizardSelectComponents=Chọn tiện ích
 SelectComponentsDesc=Chọn những tiện ích anh muốn sử dụng.
-SelectComponentsLabel2=Bỏ chọn những tiện ích chưa cần. Office chuẩn bị LibreOffice ngay trong Setup. DeepTutor tự chuẩn bị Python/Node còn thiếu; cấu hình API/model AI trong Settings để bắt đầu học.
+SelectComponentsLabel2=Bỏ chọn những tiện ích chưa cần. Office cài LibreOffice đi kèm, không cần tải mạng; bỏ chọn thì bỏ qua. DeepTutor tự chuẩn bị Python/Node còn thiếu; cấu hình API/model AI trong Settings để bắt đầu học.
 WizardSelectTasks=Tùy chọn bổ sung
 SelectTasksDesc=Chọn biểu tượng truy cập nhanh.
 SelectTasksLabel2=Chọn những tùy chọn anh muốn tạo, sau đó bấm Tiếp tục.
@@ -118,6 +119,7 @@ Name: "desktopicon"; Description: "Tạo biểu tượng trên Desktop"; Flags: 
 [Files]
 Source: "{#Root}\scripts\install-office.ps1"; Flags: dontcopy
 Source: "{#Root}\dist\prerequisites\vc_redist.x64.exe"; Flags: dontcopy
+Source: "{#Root}\dist\prerequisites\LibreOffice-26.8.1.msi"; Flags: dontcopy
 Source: "{#Root}\target\release\pentakuru.exe"; DestDir: "{app}"; DestName: "PentaKuru.exe"; Flags: ignoreversion; Components: core
 Source: "{#Root}\LICENSE"; DestDir: "{app}"; Components: core
 Source: "{#Root}\LICENSE-PENTEYE-MIT"; DestDir: "{app}"; Components: core
@@ -125,6 +127,7 @@ Source: "{#Root}\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Components: core
 Source: "{#Root}\docs\OFFICE-MEDIA-INTEGRATION.md"; DestDir: "{app}\docs"; Components: core
 Source: "{#Root}\docs\INSTALLER.md"; DestDir: "{app}\docs"; Components: core
 Source: "{#Root}\docs\DEEPTUTOR-ONECLICK.md"; DestDir: "{app}\docs"; Components: core
+Source: "{#Root}\docs\CONNECTED-WORKSPACE.md"; DestDir: "{app}\docs"; Components: core
 Source: "{#Root}\dist\PentaKuru-Watch-1.2.3.zab"; DestDir: "{app}\watch"; Components: core; Flags: skipifsourcedoesntexist
 
 [InstallDelete]

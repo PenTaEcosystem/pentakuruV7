@@ -31,6 +31,8 @@ Lần cài đầu cần HTTPS đến `www.nuget.org`, `globalcdn.nuget.org`, `no
 
 Nếu cổng bị chương trình khác sử dụng, PentaKuru báo rõ thay vì dừng chương trình đó. Lỗi tải/cài có thể thử lại; chi tiết ở `DeepTutor/install.log`, `bootstrap-error.txt`, `startup.log`. Không đưa những thư mục này hay catalog chứa API key vào gói phát hành.
 
+Ở bước 2/5 và 3/5, trạng thái hiện tên gói, dung lượng đã tải và số giây chờ; khi giải nén/kiểm tra chữ ký sẽ hiện trạng thái riêng. Tải runtime dùng TLS 1.2, tối đa 180 giây mỗi lần và thử tối đa 3 lần. Lỗi bootstrap được hiển thị kèm đường dẫn log; nút Dừng vẫn hủy tiến trình cài. Nếu máy khác dừng ở bước 2/5, cần lấy `bootstrap-error.txt` và `install.log` từ máy đó để xác định nguyên nhân cụ thể.
+
 ## Icon
 
 EXE, bộ cài, shortcut và icon mặc định của các cửa sổ PentaKuru dùng ngũ giác đen viền trắng. Biểu tượng từng chức năng trên thanh 0–5 icon vẫn riêng biệt để dễ nhận diện.

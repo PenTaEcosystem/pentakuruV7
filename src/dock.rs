@@ -5,7 +5,7 @@ pub fn defaults() -> Vec<Icon> {
     vec![Icon::Note, Icon::Search, Icon::Ai, Icon::Translate]
 }
 impl Icon {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 11] = [
         Self::Note,
         Self::Search,
         Self::Ai,
@@ -16,7 +16,6 @@ impl Icon {
         Self::Music,
         Self::Video,
         Self::Tutor,
-        Self::UiTars,
         Self::Settings,
     ];
     pub fn label(self) -> &'static str {
@@ -47,7 +46,7 @@ impl Icon {
             Self::Music => p.integrations.music,
             Self::Video => p.integrations.clip,
             Self::Tutor => p.integrations.deeptutor,
-            Self::UiTars => p.utilities.enable_ui_tars,
+            Self::UiTars => false,
             Self::Settings => true,
         }
     }
@@ -55,7 +54,7 @@ impl Icon {
 pub fn normalize(items: &mut Vec<Icon>) {
     let mut seen = Vec::new();
     items.retain(|i| {
-        if seen.contains(i) || seen.len() == 5 {
+        if *i == Icon::UiTars || seen.contains(i) || seen.len() == 5 {
             false
         } else {
             seen.push(*i);
@@ -194,6 +193,18 @@ impl PentaKuru {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_ui_tars_icon_is_removed_without_disabling_agent() {
+        let mut icons = vec![Icon::UiTars, Icon::Ai, Icon::Note];
+        normalize(&mut icons);
+        assert_eq!(icons, vec![Icon::Ai, Icon::Note]);
+        assert!(!Icon::ALL.contains(&Icon::UiTars));
+        let mut preferences = Preferences::default();
+        preferences.utilities.enable_ui_tars = true;
+        assert!(!Icon::UiTars.enabled(&preferences));
+        assert!(preferences.utilities.enable_ui_tars);
+    }
     #[test]
     fn optional_icons_are_unique_and_capped() {
         let mut v = Vec::new();

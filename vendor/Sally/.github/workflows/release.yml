@@ -1,0 +1,165 @@
+# Builds release artifacts for both supported platforms (design §12, §14):
+# - Windows 11 x64: portable ZIP (sally.exe + sample .env + docs)
+# - macOS 14+ Apple Silicon: .app in a DMG, Developer ID signed + notarized
+#   when Apple secrets are configured (see the macos job below); falls back
+#   to ad-hoc signing with zero other changes when they aren't, so this repo
+#   works before and after enrolling in the Apple Developer Program.
+#
+# Both platforms build on every version tag (v*) and on manual
+# workflow_dispatch; the release job (tag pushes only) waits for both and
+# publishes one draft release with everything attached.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npx tauri build --no-bundle
+      - name: Package portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force staging | Out-Null
+          Copy-Item src-tauri/target/release/sally.exe staging/Sally.exe
+          Copy-Item .env.example staging/.env.example
+          Copy-Item README.md staging/README.md
+          Compress-Archive -Path staging/* -DestinationPath Sally-windows-x64-portable.zip -Force
+          (Get-FileHash Sally-windows-x64-portable.zip -Algorithm SHA256).Hash |
+            Out-File -Encoding ascii Sally-windows-x64-portable.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sally-windows-x64-portable
+          path: |
+            Sally-windows-x64-portable.zip
+            Sally-windows-x64-portable.zip.sha256
+
+  macos:
+    # macos-26: the screencapturekit crate's apple-metal Swift bridge
+    # compiles against the Xcode 26 SDK (MTLSamplerReductionMode et al.).
+    runs-on: macos-26
+    env:
+      DMG_PATH: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Sally-macos-aarch64.dmg
+      APP_PATH: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Sally.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npx tauri build --target aarch64-apple-darwin --bundles app
+      - name: Check for Developer ID secrets
+        # Signing mode flips automatically once these six repo secrets are
+        # set (Settings → Secrets and variables → Actions), no workflow
+        # edits needed: APPLE_CERTIFICATE (base64 .p12 export of the
+        # Developer ID Application cert), APPLE_CERTIFICATE_PASSWORD (its
+        # export password), APPLE_SIGNING_IDENTITY (e.g. "Developer ID
+        # Application: Name (TEAMID)"), APPLE_ID (Apple ID email used for
+        # notarization), APPLE_PASSWORD (an app-specific password for that
+        # Apple ID — not its account password), APPLE_TEAM_ID. Until all six
+        # are set this falls back to the same ad-hoc signing Sally has
+        # always shipped with — no regression before enrollment lands.
+        id: signing
+        env:
+          HAS_CERT: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        run: echo "developer_id=$HAS_CERT" >> "$GITHUB_OUTPUT"
+      - name: Import Developer ID certificate
+        if: steps.signing.outputs.developer_id == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/sally-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          CERT_PATH="$RUNNER_TEMP/developer_id.p12"
+          echo "$APPLE_CERTIFICATE" | base64 --decode -o "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A \
+            -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | sed 's/[" ]//g')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+      - name: Sign app bundle (Developer ID)
+        if: steps.signing.outputs.developer_id == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          codesign --force --deep --options runtime \
+            --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
+      - name: Ad-hoc sign the app bundle (fallback — no Developer ID configured)
+        if: steps.signing.outputs.developer_id != 'true'
+        run: |
+          codesign --force --deep --sign - "$APP_PATH"
+      - name: Build DMG
+        run: |
+          mkdir -p dmg-staging
+          cp -R "$APP_PATH" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname Sally -srcfolder dmg-staging -ov -format UDZO "$DMG_PATH"
+      - name: Notarize and staple DMG
+        if: steps.signing.outputs.developer_id == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG_PATH"
+      - name: Checksums
+        run: |
+          cd "$(dirname "$DMG_PATH")"
+          shasum -a 256 "$(basename "$DMG_PATH")" > "$(basename "$DMG_PATH").sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sally-macos-aarch64
+          path: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Sally-macos-aarch64.dmg
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Sally-macos-aarch64.dmg.sha256
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: true
+          fail_on_unmatched_files: false
+          files: |
+            Sally-windows-x64-portable.zip
+            Sally-windows-x64-portable.zip.sha256
+            *.dmg
+            *.dmg.sha256

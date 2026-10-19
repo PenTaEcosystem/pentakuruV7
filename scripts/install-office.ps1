@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Destination, [switch]$ForcePrivate)
+﻿param([Parameter(Mandatory=$true)][string]$Destination, [switch]$ForcePrivate, [string]$InstallerPath = '')
 $env:PSModulePath = $PSHOME + '\Modules;' + $env:ProgramFiles + '\WindowsPowerShell\Modules'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -27,6 +27,10 @@ try {
         if (-not (Test-Path -LiteralPath $officeMsi)) { return $false }
         $signature = Get-AuthenticodeSignature -LiteralPath $officeMsi
         return $signature.Status -eq 'Valid' -and $signature.SignerCertificate.Subject -match 'The Document Foundation'
+    }
+    if ($InstallerPath) {
+        $officeMsi = [IO.Path]::GetFullPath($InstallerPath)
+        if (-not (Test-SignedInstaller)) { throw 'Chữ ký bộ cài LibreOffice đi kèm không hợp lệ.' }
     }
     if (-not (Test-SignedInstaller)) {
         $download = $officeMsi + '.download'

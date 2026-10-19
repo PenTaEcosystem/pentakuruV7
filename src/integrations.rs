@@ -41,7 +41,7 @@ pub struct State {
     pub cancel: Arc<AtomicBool>,
     pub progress: Arc<Mutex<String>>,
 }
-pub struct TutorChild(pub Child, pub bool, pub u16);
+pub struct TutorChild(pub Child, pub bool, pub u16, pub u16);
 impl Drop for TutorChild {
     fn drop(&mut self) {
         stop_child(&mut self.0);
@@ -150,7 +150,13 @@ fn install_step(
             return if status.success() {
                 Ok(())
             } else {
-                Err("Chưa cài được DeepTutor. Kiểm tra Internet, dung lượng đĩa và proxy/chính sách mạng rồi thử lại. Chi tiết trong DeepTutor/install.log.".into())
+                let detail =
+                    std::fs::read_to_string(home.join("bootstrap-error.txt")).unwrap_or_default();
+                Err(format!(
+                    "Chưa cài được DeepTutor. {} Chi tiết: {}",
+                    detail.trim(),
+                    home.join("install.log").display()
+                ))
             };
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -363,7 +369,7 @@ fn start_tutor_at(
                 .is_ok()
         {
             tutor_stage(&home, progress, "DeepTutor đã sẵn sàng");
-            return Ok(TutorChild(child, synced_ai, ports.1));
+            return Ok(TutorChild(child, synced_ai, ports.1, ports.0));
         }
         if std::time::Instant::now() > deadline {
             stop_child(&mut child);

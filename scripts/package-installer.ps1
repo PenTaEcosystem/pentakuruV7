@@ -10,6 +10,8 @@ Push-Location $projectDir
 try {
     cargo build --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+    & (Join-Path $PSScriptRoot 'prepare-vc-runtime.ps1')
+    & (Join-Path $PSScriptRoot 'prepare-office-runtime.ps1')
     & $CompilerPath (Join-Path $PSScriptRoot 'pentakuru-setup.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
     Get-FileHash -LiteralPath (Join-Path $projectDir 'dist\PentaKuru-Setup.exe') -Algorithm SHA256

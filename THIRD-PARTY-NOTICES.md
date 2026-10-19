@@ -25,7 +25,11 @@ source ZIP supplied beside the Windows executable ZIP.
 
 Optional integrations added in October 2026:
 - LibreOffice is controlled through its official UNO API. Its runtime is reused
-  from an existing installation or downloaded on demand from The Document Foundation.
+  from an existing installation, installed from the official MSI bundled in Setup,
+  or downloaded on demand from The Document Foundation in the portable application.
+  LibreOffice 26.8.1 is redistributed unmodified; its license and third-party notices
+  remain in the MSI distribution. Corresponding upstream source is available at
+  https://download.documentfoundation.org/libreoffice/src/26.8.1/
   https://api.libreoffice.org/
 - DeepTutor by HKUDS (Apache-2.0) is installed on demand from PyPI, pinned to 1.6.14.
   Its official runtime and frontend are not bundled into this executable.

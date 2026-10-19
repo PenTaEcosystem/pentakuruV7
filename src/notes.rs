@@ -30,16 +30,57 @@ pub struct NoteItem {
     pub attachments: Vec<AttachmentInfo>,
     #[serde(default = "default_note_icon")]
     pub icon: String,
+    #[serde(default)]
+    pub ai_shared: bool,
+    #[serde(default)]
+    pub task_card_id: Option<String>,
+    #[serde(default)]
+    pub ai_summary: String,
+    #[serde(default)]
+    pub summary_source: String,
 }
 
 fn default_note_icon() -> String {
     "file".into()
 }
 
+impl NoteItem {
+    pub fn content_fingerprint(&self) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.content.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+
+    pub fn summary_is_current(&self) -> bool {
+        !self.ai_summary.trim().is_empty() && self.summary_source == self.content_fingerprint()
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct NoteMeta {
     #[serde(default = "default_note_icon")]
     pub icon: String,
+    #[serde(default)]
+    pub ai_shared: bool,
+    #[serde(default)]
+    pub task_card_id: Option<String>,
+    #[serde(default)]
+    pub ai_summary: String,
+    #[serde(default)]
+    pub summary_source: String,
+}
+
+impl From<&NoteItem> for NoteMeta {
+    fn from(note: &NoteItem) -> Self {
+        Self {
+            icon: note.icon.clone(),
+            ai_shared: note.ai_shared,
+            task_card_id: note.task_card_id.clone(),
+            ai_summary: note.ai_summary.clone(),
+            summary_source: note.summary_source.clone(),
+        }
+    }
 }
 
 pub struct NotesManager {
@@ -81,6 +122,33 @@ impl NotesManager {
 }
 
 impl NotesManager {
+    pub fn store_summary(&mut self, id: &str, source: &str, summary: &str) -> Result<bool, String> {
+        let Some(note) = self.notes.iter_mut().find(|note| note.id == id) else {
+            return Ok(false);
+        };
+        if !note.ai_shared || note.content_fingerprint() != source {
+            return Ok(false);
+        }
+        let mut meta = NoteMeta::from(&*note);
+        meta.ai_summary = summary.trim().chars().take(1200).collect();
+        if meta.ai_summary.is_empty() {
+            return Err("AI chưa trả về bản tóm tắt.".into());
+        }
+        meta.summary_source = source.to_owned();
+        let path = self
+            .root_dir
+            .join(&note.folder)
+            .join(format!("{id}.meta.json"));
+        fs::write(
+            path,
+            serde_json::to_vec_pretty(&meta).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        note.ai_summary = meta.ai_summary;
+        note.summary_source = meta.summary_source;
+        Ok(true)
+    }
+
     /// Khởi tạo cấu trúc thư mục trên ổ đĩa
     pub fn init_filesystem(&mut self) {
         let _ = fs::create_dir_all(&self.root_dir);
@@ -118,6 +186,9 @@ impl NotesManager {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file()
+                        && !path
+                            .file_name()
+                            .is_some_and(|name| name.to_string_lossy().ends_with(".meta.json"))
                         && path
                             .extension()
                             .is_some_and(|ext| ext == "md" || ext == "json")
@@ -194,11 +265,13 @@ impl NotesManager {
             .unwrap_or_else(|| id.clone());
 
         let meta_path = self.root_dir.join(folder).join(format!("{id}.meta.json"));
-        let icon = fs::read_to_string(meta_path)
+        let meta = fs::read_to_string(meta_path)
             .ok()
             .and_then(|s| serde_json::from_str::<NoteMeta>(&s).ok())
-            .map(|m| m.icon)
-            .unwrap_or_else(default_note_icon);
+            .unwrap_or_else(|| NoteMeta {
+                icon: default_note_icon(),
+                ..Default::default()
+            });
 
         Some(NoteItem {
             id,
@@ -208,7 +281,11 @@ impl NotesManager {
             created_at,
             updated_at,
             attachments,
-            icon,
+            icon: meta.icon,
+            ai_shared: meta.ai_shared,
+            task_card_id: meta.task_card_id,
+            ai_summary: meta.ai_summary,
+            summary_source: meta.summary_source,
         })
     }
 
@@ -243,6 +320,10 @@ impl NotesManager {
             updated_at: date_str,
             attachments: Vec::new(),
             icon: default_note_icon(),
+            ai_shared: false,
+            task_card_id: None,
+            ai_summary: String::new(),
+            summary_source: String::new(),
         };
 
         let file_path = self.root_dir.join(&note.folder).join(format!("{id}.md"));
@@ -253,15 +334,39 @@ impl NotesManager {
             .join(format!("{id}.meta.json"));
         let _ = fs::write(
             meta_path,
-            serde_json::to_string(&NoteMeta {
-                icon: note.icon.clone(),
-            })
-            .unwrap_or_default(),
+            serde_json::to_string(&NoteMeta::from(&note)).unwrap_or_default(),
         );
 
         self.notes.insert(0, note);
         self.selected_note_id = Some(id.clone());
         id
+    }
+
+    pub fn ai_profile(&self) -> String {
+        let mut profile = String::new();
+        let mut remaining = 16000;
+        let mut shared: Vec<_> = self.notes.iter().filter(|note| note.ai_shared).collect();
+        shared.sort_by_key(|note| self.selected_note_id.as_ref() != Some(&note.id));
+        for note in shared {
+            if remaining == 0 {
+                break;
+            }
+            let section = format!(
+                "\nNguồn: {} / {} [{}]\n{}\n",
+                note.folder,
+                note.title,
+                note.id,
+                if note.summary_is_current() {
+                    note.ai_summary.clone()
+                } else {
+                    "[Chưa có bản tóm tắt cập nhật; không suy đoán nội dung.]".into()
+                }
+            );
+            let excerpt: String = section.chars().take(remaining).collect();
+            remaining -= excerpt.chars().count();
+            profile.push_str(&excerpt);
+        }
+        profile
     }
 
     /// Thêm một thư mục mới
@@ -288,10 +393,7 @@ impl NotesManager {
                 .join(format!("{id}.meta.json"));
             let _ = fs::write(
                 meta_path,
-                serde_json::to_string(&NoteMeta {
-                    icon: note.icon.clone(),
-                })
-                .unwrap_or_default(),
+                serde_json::to_string(&NoteMeta::from(&*note)).unwrap_or_default(),
             );
         }
     }
@@ -361,10 +463,7 @@ impl NotesManager {
                 .join(format!("{id}.meta.json"));
             let _ = fs::write(
                 meta_path,
-                serde_json::to_string(&NoteMeta {
-                    icon: note.icon.clone(),
-                })
-                .unwrap_or_default(),
+                serde_json::to_string(&NoteMeta::from(&*note)).unwrap_or_default(),
             );
         }
     }
@@ -455,5 +554,139 @@ impl NotesManager {
                 match_folder && match_search
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture() -> NotesManager {
+        let nonce = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        NotesManager::at(PathBuf::from(format!(".build/note-context-{nonce}")))
+    }
+
+    #[test]
+    fn sharing_and_task_link_survive_edits_and_reload_without_metadata_notes() {
+        let mut manager = fixture();
+        let id = manager.create_note("Bài học", "# Bài học\n\nMục tiêu riêng");
+        let note = manager.notes.iter_mut().find(|note| note.id == id).unwrap();
+        note.ai_shared = true;
+        note.task_card_id = Some("card-123".into());
+        let source = note.content_fingerprint();
+        manager
+            .store_summary(&id, &source, "Mục tiêu riêng")
+            .unwrap();
+        manager.save_selected_note();
+        manager.set_selected_note_icon("book");
+        let count = manager.notes.len();
+        manager.reload();
+        assert_eq!(manager.notes.len(), count);
+        let note = manager.notes.iter().find(|note| note.id == id).unwrap();
+        assert!(note.ai_shared);
+        assert_eq!(note.task_card_id.as_deref(), Some("card-123"));
+        assert_eq!(note.icon, "book");
+        assert!(manager.ai_profile().contains("Mục tiêu riêng"));
+        manager
+            .notes
+            .iter_mut()
+            .find(|note| note.id == id)
+            .unwrap()
+            .ai_shared = false;
+        manager.save_selected_note();
+        manager.reload();
+        assert!(manager.ai_profile().is_empty());
+    }
+
+    #[test]
+    fn legacy_metadata_is_private_and_profile_excludes_other_notes() {
+        let meta: NoteMeta = serde_json::from_str(r#"{"icon":"file"}"#).unwrap();
+        assert!(!meta.ai_shared);
+        let mut manager = fixture();
+        manager.create_note("Bí mật", "Không được gửi nội dung này");
+        let shared = manager.create_note("Học", "Được phép dùng làm ngữ cảnh");
+        manager
+            .notes
+            .iter_mut()
+            .find(|note| note.id == shared)
+            .unwrap()
+            .ai_shared = true;
+        let source = manager
+            .notes
+            .iter()
+            .find(|note| note.id == shared)
+            .unwrap()
+            .content_fingerprint();
+        manager
+            .store_summary(&shared, &source, "Được phép dùng làm ngữ cảnh")
+            .unwrap();
+        let profile = manager.ai_profile();
+        assert!(profile.contains("Được phép"));
+        assert!(!profile.contains("Không được gửi"));
+        assert!(!profile.contains("Chào mừng"));
+    }
+
+    #[test]
+    fn context_budget_is_bounded_and_prioritizes_selected_note() {
+        let mut manager = fixture();
+        for position in 0..9 {
+            let id = manager.create_note(&format!("Bài {position}"), &"ế".repeat(4000));
+            manager
+                .notes
+                .iter_mut()
+                .find(|note| note.id == id)
+                .unwrap()
+                .ai_shared = true;
+        }
+        manager.selected_note_id = manager.notes.last().map(|note| note.id.clone());
+        let selected = manager.selected_note_id.clone().unwrap();
+        manager
+            .notes
+            .iter_mut()
+            .find(|note| note.id == selected)
+            .unwrap()
+            .ai_shared = true;
+        let profile = manager.ai_profile();
+        assert!(profile.chars().count() <= 16000);
+        assert!(profile.lines().nth(1).unwrap().contains(&selected));
+    }
+
+    #[test]
+    fn memory_uses_persisted_summary_and_rejects_stale_or_unshared_results() {
+        let mut manager = fixture();
+        let id = manager.create_note("Dự án", "# Dự án\n\nNội dung gốc chi tiết");
+        let note = manager.notes.iter_mut().find(|note| note.id == id).unwrap();
+        note.ai_shared = true;
+        let source = note.content_fingerprint();
+        assert!(
+            manager
+                .store_summary(&id, &source, "- Hoàn thiện dự án thứ Sáu.")
+                .unwrap()
+        );
+        manager.reload();
+        let profile = manager.ai_profile();
+        assert!(profile.contains("Hoàn thiện dự án thứ Sáu"));
+        assert!(!profile.contains("Nội dung gốc chi tiết"));
+        manager
+            .notes
+            .iter_mut()
+            .find(|note| note.id == id)
+            .unwrap()
+            .content
+            .push_str("\nĐổi kế hoạch.");
+        assert!(!manager.store_summary(&id, &source, "Kết quả cũ").unwrap());
+        assert!(!manager.ai_profile().contains("Hoàn thiện dự án"));
+        let note = manager.notes.iter_mut().find(|note| note.id == id).unwrap();
+        let current = note.content_fingerprint();
+        note.ai_shared = false;
+        assert!(
+            !manager
+                .store_summary(&id, &current, "Không được lưu")
+                .unwrap()
+        );
+        assert!(manager.ai_profile().is_empty());
     }
 }

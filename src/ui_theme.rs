@@ -65,6 +65,15 @@ pub fn install(ctx: &egui::Context) {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[allow(dead_code)]
 pub enum Glyph {
+    AiMemory,
+    Chat,
+    Kanban,
+    Eye,
+    Heading1,
+    Heading2,
+    Bold,
+    Italic,
+    Trash,
     Search,
     Plus,
     Close,
@@ -141,12 +150,129 @@ pub fn icon(ui: &mut egui::Ui, kind: Glyph, label: &str, enabled: bool) -> Respo
     response.on_hover_text(label)
 }
 
+pub fn toolbar_icon(
+    ui: &mut egui::Ui,
+    kind: Glyph,
+    label: &str,
+    enabled: bool,
+    selected: bool,
+) -> Response {
+    let enabled = enabled && ui.is_enabled();
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::splat(32.0),
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    let accent = Color32::from_rgb(100, 220, 175);
+    if selected || (enabled && response.hovered()) {
+        ui.painter().rect_filled(
+            rect,
+            8,
+            if selected {
+                Color32::from_rgb(34, 65, 54)
+            } else {
+                SURFACE
+            },
+        );
+    }
+    if response.has_focus() {
+        ui.painter()
+            .rect_stroke(rect, 8, Stroke::new(1.0, TEXT), egui::StrokeKind::Inside);
+    }
+    draw_icon(
+        ui.painter(),
+        rect.center(),
+        kind,
+        if !enabled {
+            MUTED
+        } else if selected {
+            accent
+        } else {
+            TEXT
+        },
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    response.on_hover_text(label)
+}
+
 pub fn draw_icon(p: &egui::Painter, c: Pos2, kind: Glyph, color: Color32) {
     let s = Stroke::new(1.5, color);
     let line = |a: (f32, f32), b: (f32, f32)| {
         p.line_segment([c + Vec2::new(a.0, a.1), c + Vec2::new(b.0, b.1)], s);
     };
     match kind {
+        Glyph::Trash => {
+            line((-7.0, -5.0), (7.0, -5.0));
+            line((-3.0, -8.0), (3.0, -8.0));
+            line((-5.0, -3.0), (-4.0, 7.0));
+            line((-4.0, 7.0), (4.0, 7.0));
+            line((4.0, 7.0), (5.0, -3.0));
+            line((-1.5, -2.0), (-1.5, 4.0));
+            line((1.5, -2.0), (1.5, 4.0));
+        }
+        Glyph::AiMemory | Glyph::Heading1 | Glyph::Heading2 | Glyph::Bold => {
+            let label = match kind {
+                Glyph::AiMemory => "AI",
+                Glyph::Heading1 => "H₁",
+                Glyph::Heading2 => "H₂",
+                Glyph::Bold => "B",
+                _ => "B",
+            };
+            p.text(
+                c,
+                egui::Align2::CENTER_CENTER,
+                label,
+                FontId::proportional(15.0),
+                color,
+            );
+        }
+        Glyph::Italic => {
+            line((-2.0, -7.0), (6.0, -7.0));
+            line((2.0, -7.0), (-2.0, 7.0));
+            line((-6.0, 7.0), (2.0, 7.0));
+        }
+        Glyph::Chat => {
+            p.rect_stroke(
+                egui::Rect::from_center_size(c, Vec2::new(17.0, 12.0)),
+                3,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            line((-5.0, 6.0), (-5.0, 9.0));
+            line((-5.0, 9.0), (0.0, 6.0));
+            line((-4.0, -2.0), (4.0, -2.0));
+            line((-4.0, 2.0), (2.0, 2.0));
+        }
+        Glyph::Kanban => {
+            for (offset, height) in [(-6.0, 12.0), (0.0, 8.0), (6.0, 15.0)] {
+                p.rect_stroke(
+                    egui::Rect::from_min_size(
+                        c + Vec2::new(offset - 2.0, -7.0),
+                        Vec2::new(4.0, height),
+                    ),
+                    1,
+                    s,
+                    egui::StrokeKind::Inside,
+                );
+            }
+        }
+        Glyph::Eye => {
+            p.add(egui::Shape::closed_line(
+                vec![
+                    c + Vec2::new(-9.0, 0.0),
+                    c + Vec2::new(-4.0, -5.0),
+                    c + Vec2::new(4.0, -5.0),
+                    c + Vec2::new(9.0, 0.0),
+                    c + Vec2::new(4.0, 5.0),
+                    c + Vec2::new(-4.0, 5.0),
+                ],
+                s,
+            ));
+            p.circle_stroke(c, 2.5, s);
+        }
         Glyph::Settings => {
             p.circle_stroke(c, 6.0, s);
             p.circle_stroke(c, 2.0, s);
