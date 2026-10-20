@@ -1,5 +1,5 @@
 //! Apply a setup manifest once without overwriting account credentials or later Settings edits.
-use crate::Preferences;
+use crate::{Icon, Preferences, dock};
 use serde::Deserialize;
 use std::path::Path;
 
@@ -49,6 +49,36 @@ fn apply(path: &Path, prefs: &mut Preferences) -> Result<bool, String> {
     prefs.integrations.music = options.music;
     prefs.integrations.clip = options.clip;
     prefs.integrations.deeptutor = options.deeptutor;
+    // Setup choices must also be discoverable on a fresh PC. Reserve a place
+    // for the selected tutor/spell tools before filling the five-icon dock.
+    let mut icons = Vec::new();
+    if options.deeptutor {
+        icons.push(Icon::Tutor);
+    }
+    if options.spell {
+        icons.push(Icon::Spell);
+    }
+    icons.push(Icon::Ai);
+    if options.notes {
+        icons.push(Icon::Note);
+    }
+    if options.search {
+        icons.push(Icon::Search);
+    }
+    if options.sally {
+        icons.push(Icon::Translate);
+    }
+    if prefs.utilities.enable_office {
+        icons.push(Icon::Office);
+    }
+    if options.music {
+        icons.push(Icon::Music);
+    }
+    if options.clip {
+        icons.push(Icon::Video);
+    }
+    dock::normalize(&mut icons);
+    prefs.dock_icons = icons;
     prefs.applied_installation = options.installation_id;
     Ok(true)
 }
@@ -64,7 +94,8 @@ pub fn check_installed(output: &str) {
     let report = serde_json::json!({"applied":result.as_ref().copied().unwrap_or(false),
         "error":result.err(),"utilities":prefs.utilities,"writer":prefs.office.writer,
         "impress":prefs.office.impress,"calc":prefs.office.calc,
-        "music":prefs.integrations.music,"clip":prefs.integrations.clip,"deeptutor":prefs.integrations.deeptutor});
+        "music":prefs.integrations.music,"clip":prefs.integrations.clip,"deeptutor":prefs.integrations.deeptutor,
+        "dock_icons":prefs.dock_icons});
     let _ = std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap());
 }
 
@@ -87,6 +118,22 @@ mod tests {
         prefs.integrations.music = false;
         assert!(!apply(&path, &mut prefs).unwrap());
         assert!(!prefs.integrations.music);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn fresh_install_exposes_tutor_and_spell_and_keeps_later_dock_choices() {
+        let path =
+            std::env::temp_dir().join(format!("penta-setup-dock-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{"schema":1,"installation_id":"tutor-spell-install","notes":true,"search":true,"spell":true,"sally":true,"ui_tars":false,"writer":false,"impress":false,"calc":false,"music":true,"clip":true,"deeptutor":true}"#).unwrap();
+        let mut prefs = Preferences::default();
+        assert!(apply(&path, &mut prefs).unwrap());
+        assert!(prefs.dock_icons.contains(&Icon::Tutor));
+        assert!(prefs.dock_icons.contains(&Icon::Spell));
+        assert_eq!(prefs.dock_icons.len(), 5);
+        prefs.dock_icons = vec![Icon::Ai];
+        assert!(!apply(&path, &mut prefs).unwrap());
+        assert_eq!(prefs.dock_icons, vec![Icon::Ai]);
         std::fs::remove_file(path).unwrap();
     }
 }

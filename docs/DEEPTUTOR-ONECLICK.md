@@ -1,13 +1,13 @@
 # DeepTutor: cài bằng một nút và cách sử dụng
 
-Mở Settings → DeepTutor → **Cài đặt / mở DeepTutor**. Người dùng không cần cài Python, Node.js, Docker hoặc chạy lệnh. Có thể bật DeepTutor trong danh sách tiện ích; thao tác này cũng bắt đầu cài/mở. Chương trình hiện từng giai đoạn và có nút Dừng.
+Chọn **DeepTutor** trong Setup để cài sẵn toàn bộ runtime, sau đó bấm icon DeepTutor trên thanh chức năng hoặc mở Settings → DeepTutor → **Cài đặt / mở DeepTutor**. Người dùng không cần cài Python, Node.js, Docker hoặc chạy lệnh. Có thể bật DeepTutor trong danh sách tiện ích rồi bấm nút mở. Chương trình hiện từng giai đoạn và có nút Dừng.
 
 ## Luồng cài đặt
 
 1. Kiểm tra thư mục runtime riêng.
-2. Chuẩn bị Python 3.13.12 từ gói NuGet chính thức của Python, kiểm tra SHA256 và chữ ký Python Software Foundation.
-3. Chuẩn bị Node.js 24.21.0 LTS dạng ZIP chính thức, kiểm tra SHA256 và chữ ký OpenJS Foundation.
-4. Tạo môi trường Python riêng, cài DeepTutor 1.6.14 với bộ ràng buộc 166 thư viện đã kiểm tra.
+2. Chuẩn bị Python 3.13.12 từ gói NuGet chính thức đi kèm Setup, kiểm tra SHA256 và chữ ký Python Software Foundation.
+3. Chuẩn bị Node.js 24.21.0 LTS dạng ZIP chính thức đi kèm, kiểm tra SHA256 và chữ ký OpenJS Foundation.
+4. Tạo môi trường Python riêng, cài DeepTutor 1.6.14 và thư viện từ wheel bundle bằng `--no-index`, xác minh hash và thử import trước khi ghi trạng thái sẵn sàng. Không cần Python, Node hay compiler đã cài trên máy.
 5. Khởi động backend/giao diện, kiểm tra cả hai sẵn sàng rồi mở cửa sổ DeepTutor.
 
 Python/Node nằm dưới `Penteye Notes/DeepTutor/engines`; không sửa PATH hệ thống, đăng ký Python mới hay thay đổi Node/Python của chương trình khác. Các gói đã tải được giữ để thử lại/mở nhanh. Tắt tiện ích dừng những tiến trình PentaKuru tạo, giữ runtime và dữ liệu học.
@@ -27,7 +27,7 @@ Nguồn tính năng: [DeepTutor HKUDS v1.6.14](https://github.com/HKUDS/DeepTuto
 
 Giao diện/backend chỉ bind `127.0.0.1`, cổng 3897/3896. PentaKuru kiểm tra sức khỏe qua loopback, không qua HTTP proxy. Ngoại lệ NO_PROXY cho localhost được thêm riêng cho tiến trình DeepTutor và giữ các mục đã có. Không tạo quy tắc inbound, không tắt tường lửa hoặc bỏ kiểm tra chứng chỉ TLS.
 
-Lần cài đầu cần HTTPS đến `www.nuget.org`, `globalcdn.nuget.org`, `nodejs.org`, `pypi.org`, `files.pythonhosted.org`. Khi dùng AI cloud cần truy cập miền của provider đã chọn. Nếu mạng cơ quan chặn các miền này, quản trị mạng cần cấp phép hoặc cấu hình proxy hợp lệ; ứng dụng không vượt chính sách mạng. Model chạy cục bộ dùng địa chỉ của model đã cấu hình.
+Bộ Setup có đủ runtime và thư viện để cài offline. Với EXE portable không có payload hoặc bật thêm DeepTutor sau một lượt Setup đã bỏ chọn nó, lần cài đầu cần HTTPS đến `www.nuget.org`, `globalcdn.nuget.org`, `nodejs.org`, `pypi.org`, `files.pythonhosted.org`. Khi dùng AI cloud cần truy cập miền của provider đã chọn. Nếu mạng cơ quan chặn các miền này, quản trị mạng cần cấp phép hoặc cấu hình proxy hợp lệ; ứng dụng không vượt chính sách mạng. Model chạy cục bộ dùng địa chỉ của model đã cấu hình.
 
 Nếu cổng bị chương trình khác sử dụng, PentaKuru báo rõ thay vì dừng chương trình đó. Lỗi tải/cài có thể thử lại; chi tiết ở `DeepTutor/install.log`, `bootstrap-error.txt`, `startup.log`. Không đưa những thư mục này hay catalog chứa API key vào gói phát hành.
 
@@ -38,3 +38,7 @@ Nếu cổng bị chương trình khác sử dụng, PentaKuru báo rõ thay vì
 EXE, bộ cài, shortcut và icon mặc định của các cửa sổ PentaKuru dùng ngũ giác đen viền trắng. Biểu tượng từng chức năng trên thanh 0–5 icon vẫn riêng biệt để dễ nhận diện.
 
 Nguồn runtime: [Python NuGet](https://docs.python.org/3.13/using/windows.html#the-nuget-org-packages), [Node.js 24.21.0 LTS](https://nodejs.org/en/blog/release/v24.21.0).
+
+## Máy chưa có WebView2
+
+Setup v0.1.1 kiểm tra và cài WebView2 từ gói Microsoft đi kèm trước khi mở ứng dụng. Thành phần này cũng dùng cho Sally, Music và Clip. Nếu bản cũ báo lỗi Windows khi mở các cửa sổ web, chạy lại Setup mới. Nhật ký thư viện bổ sung: `DeepTutor/packages.log`; chẩn đoán import: `DeepTutor/package-check.log`. Python chạy độc lập với PYTHONHOME/PYTHONPATH của máy và dùng UTF-8 cho tiến trình DeepTutor.

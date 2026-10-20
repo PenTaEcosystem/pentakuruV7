@@ -1,0 +1,68 @@
+{
+  "version": "0.1.1",
+  "date": "2026-10-20",
+  "rust_unit_tests": 63,
+  "clippy_all_targets": true,
+  "native_spell_editor_replacement": true,
+  "empty_selection_rejects_stale_clipboard": true,
+  "invalid_paste_target_rejected": true,
+  "missing_tutor_payload_rejected": true,
+  "installer_selection_upgrade_uninstall": {
+    "minimal_choices": true,
+    "installed_exe_matches_release": true,
+    "all_choices": true,
+    "custom_choices": true,
+    "upgrade_preserves_data": true,
+    "passed": true,
+    "uninstall_preserves_data": true,
+    "no_premature_runtime": true
+  },
+  "offline_setup": {
+    "actual_setup_callbacks": true,
+    "webview": "existing Microsoft runtime detected; missing/failure branches tested separately",
+    "passed": true,
+    "deeptutor": {
+      "passed": true,
+      "credentials_used": false,
+      "frontend_status": 200,
+      "frontend_html_bytes": 23284,
+      "catalog_api": 200,
+      "catalog_has_services": true,
+      "backend_ready": 200
+    },
+    "offline_wheels": true,
+    "no_pip_index": true,
+    "clean_windows_vm_tested": false,
+    "private_python_node": true,
+    "selected_icons": true
+  },
+  "music_clip": {
+    "passed": true,
+    "report": {
+      "clip": {
+        "document_width": 465,
+        "origin": "https://clip.pentasys.id.vn",
+        "ready": true,
+        "search": true,
+        "web": true,
+        "width": 480
+      },
+      "interaction": {
+        "focused": true,
+        "visible": true
+      },
+      "music": {
+        "audio": true,
+        "background": "rgb(23, 23, 25)",
+        "document_width": 480,
+        "native_login": true,
+        "origin": "https://music.pentasys.id.vn",
+        "search": true,
+        "web": true,
+        "width": 480
+      },
+      "no_credentials_used": true
+    }
+  },
+  "clean_windows_vm_tested": false
+}

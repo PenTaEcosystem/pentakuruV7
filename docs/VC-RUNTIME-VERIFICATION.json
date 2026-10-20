@@ -1,67 +1,57 @@
 {
   "shared_runtime_not_modified": true,
   "runtime_outcomes": "simulated in test build; Microsoft installer was not executed",
+  "passed": true,
   "cases": {
-    "old": {
-      "blocked_before_app_install": false,
-      "passed": true,
-      "exit_code": 0
-    },
-    "repair": {
-      "blocked_before_app_install": false,
-      "passed": true,
-      "exit_code": 0
-    },
-    "reboot": {
-      "blocked_before_app_install": false,
-      "passed": true,
-      "exit_code": 3010
-    },
     "uac-cancel": {
       "blocked_before_app_install": true,
-      "passed": true,
-      "exit_code": 7
+      "exit_code": 7,
+      "passed": true
     },
     "failure": {
       "blocked_before_app_install": true,
-      "passed": true,
-      "exit_code": 7
+      "exit_code": 7,
+      "passed": true
     },
     "present": {
       "blocked_before_app_install": false,
-      "passed": true,
-      "exit_code": 0
+      "exit_code": 0,
+      "passed": true
     },
-    "newer-race": {
+    "repair": {
       "blocked_before_app_install": false,
-      "passed": true,
-      "exit_code": 0
+      "exit_code": 0,
+      "passed": true
     },
-    "declined": {
-      "blocked_before_app_install": true,
-      "passed": true,
-      "exit_code": 7
+    "reboot": {
+      "blocked_before_app_install": false,
+      "exit_code": 3010,
+      "passed": true
     },
     "newer": {
       "blocked_before_app_install": false,
-      "passed": true,
-      "exit_code": 0
+      "exit_code": 0,
+      "passed": true
+    },
+    "declined": {
+      "blocked_before_app_install": true,
+      "exit_code": 7,
+      "passed": true
+    },
+    "old": {
+      "blocked_before_app_install": false,
+      "exit_code": 0,
+      "passed": true
+    },
+    "newer-race": {
+      "blocked_before_app_install": false,
+      "exit_code": 0,
+      "passed": true
     },
     "missing": {
       "blocked_before_app_install": false,
-      "passed": true,
-      "exit_code": 0
+      "exit_code": 0,
+      "passed": true
     }
-  },
-  "passed": true,
-  "native_installed_runtime": {
-    "passed": true,
-    "diagnostic": {
-      "required": "14.44.35211.0",
-      "installed": "14.44.35211.0",
-      "needs_install": 0
-    },
-    "microsoft_installer_not_launched": true
-  },
-  "fresh_windows_missing_runtime_test": "not run; missing runtime/UAC outcomes simulated"
+  }
 }

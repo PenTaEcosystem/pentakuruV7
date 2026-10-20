@@ -164,7 +164,6 @@ fn install_step(
 }
 #[derive(Deserialize)]
 struct RuntimePaths {
-    python: PathBuf,
     node_dir: PathBuf,
 }
 fn tutor_ports(preferred: (u16, u16)) -> Result<(u16, u16), String> {
@@ -213,6 +212,15 @@ fn start_tutor_at(
     let home = std::path::absolute(home).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
     tutor_stage(&home, progress, "1/5 · Kiểm tra thành phần DeepTutor");
+    std::fs::write(
+        home.join("runtime-constraints.txt"),
+        include_str!("../assets/deeptutor-constraints.txt"),
+    )
+    .map_err(|e| e.to_string())?;
+    let payload = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("prerequisites/DeepTutor")))
+        .filter(|dir| dir.join("bundle-manifest.json").is_file());
     let bootstrap = home.join("install-runtime.ps1");
     std::fs::write(&bootstrap, include_str!("../scripts/install-deeptutor.ps1"))
         .map_err(|e| e.to_string())?;
@@ -232,6 +240,10 @@ fn start_tutor_at(
     if force_private {
         command.arg("-ForcePrivate");
     }
+    command.arg("-InstallPackages");
+    if let Some(payload) = &payload {
+        command.arg("-PayloadDirectory").arg(payload);
+    }
     install_step(command, cancel, &home, progress)?;
     let paths: RuntimePaths = serde_json::from_slice(
         &std::fs::read(home.join("runtime-paths.json")).map_err(|e| e.to_string())?,
@@ -239,42 +251,6 @@ fn start_tutor_at(
     .map_err(|e| e.to_string())?;
     let venv = home.join("runtime");
     let runtime_python = venv.join("Scripts/python.exe");
-    let cli = venv.join("Scripts/deeptutor.exe");
-    let marker = venv.join(".pentaeye-ready");
-    if !cli.is_file()
-        || !runtime_python.is_file()
-        || std::fs::read_to_string(&marker).ok().as_deref() != Some("1.6.14")
-        || !background_command(&runtime_python)
-            .args(["-c", "import sys"])
-            .status()
-            .is_ok_and(|s| s.success())
-    {
-        tutor_stage(&home, progress, "4/5 · Cài gói DeepTutor và các thư viện");
-        let mut create = background_command(&paths.python);
-        create.args(["-m", "venv"]).arg(&venv);
-        install_step(create, cancel, &home, progress)?;
-        let constraints = home.join("runtime-constraints.txt");
-        std::fs::write(
-            &constraints,
-            include_str!("../assets/deeptutor-constraints.txt"),
-        )
-        .map_err(|e| e.to_string())?;
-        let mut pip = background_command(&runtime_python);
-        pip.args([
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "--timeout",
-            "30",
-            "--retries",
-            "3",
-            "deeptutor==1.6.14",
-        ]);
-        pip.arg("--constraint").arg(&constraints);
-        install_step(pip, cancel, &home, progress)?;
-        std::fs::write(marker, "1.6.14").map_err(|e| e.to_string())?;
-    }
     let mut synced_ai = false;
     if shared && let Ok(catalog_template) = tutor_catalog(Value::Null, ai_settings) {
         let directory = home.join("data/user/settings");
@@ -330,10 +306,16 @@ fn start_tutor_at(
     let mut child = background_command(&runtime_python)
         .stdout(startup_log.try_clone().map_err(|e| e.to_string())?)
         .stderr(startup_log)
+        .arg("-I")
+        .args(["-X", "utf8"])
         .arg(&runner)
         .arg(&home)
         .current_dir(&home)
         .env("DEEPTUTOR_HOME", &home)
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env_remove("PYTHONHOME")
+        .env_remove("PYTHONPATH")
         .env("PATH", process_path)
         .env(
             "NO_PROXY",

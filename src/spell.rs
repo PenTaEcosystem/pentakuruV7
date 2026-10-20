@@ -37,6 +37,7 @@ pub struct SpellResult {
     pub fixed: String,
     pub changed: bool,
     pub method: String,
+    pub delivery_error: Option<String>,
 }
 
 /// Từ điển thuật ngữ công nghệ viết hoa chuẩn
@@ -225,6 +226,7 @@ Quy tắc bắt buộc:\
                     fixed,
                     changed,
                     method: format!("AI ({})", ai_settings.model),
+                    delivery_error: None,
                 };
             }
             Err(e) => {
@@ -241,6 +243,7 @@ Quy tắc bắt buộc:\
         fixed,
         changed,
         method: "Offline Engine (Luật tiếng Việt & Từ điển)".to_string(),
+        delivery_error: None,
     }
 }
 
@@ -446,182 +449,111 @@ pub fn wait_and_release_modifiers(extra_vk: u16) {
 }
 
 #[cfg(target_os = "windows")]
-pub fn capture_selected_text_windows(target_hwnd: isize, hotkey_vk: u16) -> Option<String> {
-    use std::thread::sleep;
-    use std::time::{Duration, Instant};
-    use windows_sys::Win32::{
-        System::DataExchange::GetClipboardSequenceNumber,
-        UI::{
-            Input::KeyboardAndMouse::{
-                KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_LMENU, VK_MENU, VK_RMENU, VK_SHIFT,
-            },
-            WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow},
-        },
+fn focus_spell_target(target_hwnd: isize) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, IsWindow, SetForegroundWindow,
     };
-
-    // 1. Chỉ kích hoạt nếu Slack/ứng dụng chưa phải là cửa sổ đang active (tránh Chromium mất vùng bôi đen)
-    let current_fg = unsafe { GetForegroundWindow() as isize };
-    if target_hwnd != 0 && target_hwnd != current_fg {
-        unsafe { SetForegroundWindow(target_hwnd as _) };
-        sleep(Duration::from_millis(30));
+    if target_hwnd == 0 || unsafe { IsWindow(target_hwnd as _) } == 0 {
+        return Err("Chọn cửa sổ soạn thảo và bôi đen chữ trước khi sửa.".into());
     }
-
-    // 2. Chờ nhả phím Alt và phím nóng, giải phóng triệt để modifier
-    wait_and_release_modifiers(if hotkey_vk != 0 { hotkey_vk } else { 0x5A });
-
-    let initial_seq = unsafe { GetClipboardSequenceNumber() };
-
-    // 3. Đảm bảo triệt để các phím Alt, Shift đã được nhả
-    let releases = [
-        make_key_input(VK_MENU, KEYEVENTF_KEYUP),
-        make_key_input(VK_LMENU, KEYEVENTF_KEYUP),
-        make_key_input(VK_RMENU, KEYEVENTF_KEYUP),
-        make_key_input(VK_SHIFT, KEYEVENTF_KEYUP),
-    ];
-    unsafe {
-        SendInput(
-            releases.len() as u32,
-            releases.as_ptr(),
-            std::mem::size_of::<windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT>() as i32,
+    if unsafe { GetForegroundWindow() as isize } != target_hwnd {
+        unsafe {
+            SetForegroundWindow(target_hwnd as _);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    if unsafe { GetForegroundWindow() as isize } != target_hwnd {
+        return Err(
+            "Không đưa được cửa sổ soạn thảo lên trước. Chọn lại cửa sổ rồi thử phím tắt.".into(),
         );
     }
-    sleep(Duration::from_millis(20));
+    Ok(())
+}
 
-    // 4. Gửi Ctrl + C: Nhấn Ctrl và C cùng đợt SendInput để tránh bị Slack hiểu nhầm là Alt+Ctrl+C (Code block)
-    let press_ctrl_c = [
+#[cfg(target_os = "windows")]
+fn send_clipboard_chord(key: u16) -> Result<(), String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT, KEYEVENTF_KEYUP, SendInput, VK_CONTROL,
+    };
+    let inputs = [
         make_key_input(VK_CONTROL, 0),
-        make_key_input(0x43, 0), // 'C' down
-    ];
-    unsafe {
-        SendInput(
-            press_ctrl_c.len() as u32,
-            press_ctrl_c.as_ptr(),
-            std::mem::size_of::<windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT>() as i32,
-        );
-    }
-    sleep(Duration::from_millis(35));
-
-    let release_ctrl_c = [
-        make_key_input(0x43, KEYEVENTF_KEYUP), // 'C' up
+        make_key_input(key, 0),
+        make_key_input(key, KEYEVENTF_KEYUP),
         make_key_input(VK_CONTROL, KEYEVENTF_KEYUP),
     ];
-    unsafe {
+    let sent = unsafe {
         SendInput(
-            release_ctrl_c.len() as u32,
-            release_ctrl_c.as_ptr(),
-            std::mem::size_of::<windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT>() as i32,
-        );
-    }
-
-    // 5. Chờ ứng dụng đưa dữ liệu vào Clipboard (tối đa 800ms cho các ứng dụng Electron/Slack)
-    let wait_start = Instant::now();
-    let mut clipboard_changed = false;
-    while wait_start.elapsed() < Duration::from_millis(800) {
-        let current_seq = unsafe { GetClipboardSequenceNumber() };
-        if current_seq != initial_seq {
-            clipboard_changed = true;
-            break;
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
+    if sent != inputs.len() as u32 {
+        // Release any partial chord; never report a blocked paste as successful.
+        let releases = [
+            make_key_input(key, KEYEVENTF_KEYUP),
+            make_key_input(VK_CONTROL, KEYEVENTF_KEYUP),
+        ];
+        unsafe {
+            SendInput(
+                releases.len() as u32,
+                releases.as_ptr(),
+                std::mem::size_of::<INPUT>() as i32,
+            );
         }
-        sleep(Duration::from_millis(25));
+        return Err("Windows chặn thao tác sao chép/dán. Nếu trình soạn thảo đang chạy quyền quản trị, hãy mở lại nó bằng quyền thường rồi thử lại.".into());
     }
+    Ok(())
+}
 
-    if !clipboard_changed {
-        // Kiểm tra dự phòng nếu clipboard đã có text
-        if let Ok(mut cb) = arboard::Clipboard::new()
-            && let Ok(t) = cb.get_text()
-            && !t.trim().is_empty()
+#[cfg(target_os = "windows")]
+pub fn capture_selected_text_windows(target_hwnd: isize, hotkey_vk: u16) -> Result<String, String> {
+    use std::time::{Duration, Instant};
+    use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
+    wait_and_release_modifiers(hotkey_vk);
+    focus_spell_target(target_hwnd)?;
+    let sequence = unsafe { GetClipboardSequenceNumber() };
+    send_clipboard_chord(0x43)?;
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_millis(1800) {
+        if unsafe { GetClipboardSequenceNumber() } != sequence
+            && let Ok(mut clipboard) = arboard::Clipboard::new()
+            && let Ok(text) = clipboard.get_text()
+            && !text.trim().is_empty()
         {
-            return Some(t);
+            return Ok(text);
         }
-        return None;
+        std::thread::sleep(Duration::from_millis(25));
     }
-    sleep(Duration::from_millis(30));
-
-    // 6. Đọc text từ Clipboard
-    let mut clipboard = arboard::Clipboard::new().ok()?;
-    let text = clipboard.get_text().ok()?;
-    if text.trim().is_empty() {
-        None
-    } else {
-        Some(text)
-    }
+    Err("Không lấy được chữ đang bôi đen. Chọn đoạn chữ trong ô soạn thảo rồi thử lại; nội dung clipboard cũ sẽ không được dùng thay.".into())
 }
 
 #[cfg(target_os = "windows")]
 pub fn paste_text_windows(text: &str, target_hwnd: isize) -> Result<(), String> {
-    use std::thread::sleep;
-    use std::time::Duration;
-    use windows_sys::Win32::UI::{
-        Input::KeyboardAndMouse::{
-            KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_LMENU, VK_MENU, VK_RMENU, VK_SHIFT,
-        },
-        WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow},
-    };
-
-    // 1. Đưa text đã sửa vào Clipboard
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.set_text(text).map_err(|e| e.to_string())?;
-    sleep(Duration::from_millis(35));
-
-    // 2. Đảm bảo cửa sổ ứng dụng người dùng (Slack/Word/...) được focus mà không làm mất selection
-    let current_fg = unsafe { GetForegroundWindow() as isize };
-    if target_hwnd != 0 && target_hwnd != current_fg {
-        unsafe { SetForegroundWindow(target_hwnd as _) };
-        sleep(Duration::from_millis(30));
-    }
-
-    // 3. Giải phóng phím trước khi paste
     wait_and_release_modifiers(0);
-
-    let releases = [
-        make_key_input(VK_MENU, KEYEVENTF_KEYUP),
-        make_key_input(VK_LMENU, KEYEVENTF_KEYUP),
-        make_key_input(VK_RMENU, KEYEVENTF_KEYUP),
-        make_key_input(VK_SHIFT, KEYEVENTF_KEYUP),
-    ];
-    unsafe {
-        SendInput(
-            releases.len() as u32,
-            releases.as_ptr(),
-            std::mem::size_of::<windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT>() as i32,
+    focus_spell_target(target_hwnd)?;
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Không mở được clipboard: {e}"))?;
+    clipboard
+        .set_text(text)
+        .map_err(|e| format!("Không ghi được clipboard: {e}"))?;
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    if clipboard.get_text().ok().as_deref() != Some(text) {
+        return Err(
+            "Clipboard đã bị ứng dụng khác thay đổi. Bấm Sao chép kết quả để dán thủ công.".into(),
         );
     }
-    sleep(Duration::from_millis(20));
-
-    // 4. Gửi Ctrl + V theo nhóm đồng bộ
-    let press_ctrl_v = [
-        make_key_input(VK_CONTROL, 0),
-        make_key_input(0x56, 0), // 'V' down
-    ];
-    unsafe {
-        SendInput(
-            press_ctrl_v.len() as u32,
-            press_ctrl_v.as_ptr(),
-            std::mem::size_of::<windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT>() as i32,
-        );
-    }
-    sleep(Duration::from_millis(35));
-
-    let release_ctrl_v = [
-        make_key_input(0x56, KEYEVENTF_KEYUP), // 'V' up
-        make_key_input(VK_CONTROL, KEYEVENTF_KEYUP),
-    ];
-    unsafe {
-        SendInput(
-            release_ctrl_v.len() as u32,
-            release_ctrl_v.as_ptr(),
-            std::mem::size_of::<windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT>() as i32,
-        );
-    }
-    sleep(Duration::from_millis(40));
-
-    Ok(())
+    focus_spell_target(target_hwnd)?;
+    send_clipboard_chord(0x56)
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn capture_selected_text_windows(_target_hwnd: isize, _hotkey_vk: u16) -> Option<String> {
-    let mut clipboard = arboard::Clipboard::new().ok()?;
-    clipboard.get_text().ok()
+pub fn capture_selected_text_windows(
+    _target_hwnd: isize,
+    _hotkey_vk: u16,
+) -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.get_text().map_err(|e| e.to_string())
 }
 
 #[cfg(not(target_os = "windows"))]

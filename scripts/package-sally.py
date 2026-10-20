@@ -27,7 +27,7 @@ with zipfile.ZipFile(dist / f"{artifact_name}-Windows-x64.zip", "w", zipfile.ZIP
     for name in notices:
         out.write(root / name, name)
 
-source_roots = ["src", "assets", "scripts", "docs", "vendor/Sally/src",
+source_roots = ["src", "tests", "assets", "scripts", "docs", "vendor/Sally/src",
                 "vendor/Sally/src-tauri/src", "vendor/Sally/src-tauri/capabilities",
                 "vendor/Sally/src-tauri/icons",
                 "vendor/penta-bip/app-side", "vendor/penta-bip/common", "vendor/penta-bip/page",

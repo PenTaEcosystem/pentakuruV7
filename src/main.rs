@@ -653,37 +653,34 @@ Một giao diện đơn giản để tập trung vào điều anh đang làm."
                     .and_then(hotkeys::vk)
                     .unwrap_or(0x5A);
 
+                if self.spell_job.is_some() {
+                    return;
+                }
                 let effective_hwnd = if target_hwnd != 0 {
                     target_hwnd
                 } else {
-                    #[cfg(target_os = "windows")]
-                    unsafe {
-                        windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() as isize
-                    }
-                    #[cfg(not(target_os = "windows"))]
-                    0isize
+                    system::external_input_target()
                 };
 
                 self.spell_status = Some("Đang quét văn bản đã bôi đen...".into());
                 self.spell_job = Some(system::Job::spawn(ctx, move || {
-                    let text_opt = spell::capture_selected_text_windows(effective_hwnd, hotkey_vk);
-                    let original = match text_opt {
-                        Some(t) if !t.trim().is_empty() => t,
-                        _ => String::new(),
-                    };
-
-                    if original.trim().is_empty() {
-                        return spell::SpellResult {
-                            original: String::new(),
-                            fixed: String::new(),
-                            changed: false,
-                            method: "Không lấy được văn bản bôi đen (Hãy bôi đen chữ trước, hoặc đổi sang Ctrl+Alt+Z nếu bị Slack cướp phím)".into(),
+                    let original =
+                        match spell::capture_selected_text_windows(effective_hwnd, hotkey_vk) {
+                            Ok(text) => text,
+                            Err(error) => {
+                                return spell::SpellResult {
+                                    original: String::new(),
+                                    fixed: String::new(),
+                                    changed: false,
+                                    method: "Sửa chính tả".into(),
+                                    delivery_error: Some(error),
+                                };
+                            }
                         };
-                    }
-
-                    let res = spell::fix_text(&spell_settings, &ai_settings, &original);
+                    let mut res = spell::fix_text(&spell_settings, &ai_settings, &original);
                     if spell_settings.auto_paste && res.changed {
-                        let _ = spell::paste_text_windows(&res.fixed, effective_hwnd);
+                        res.delivery_error =
+                            spell::paste_text_windows(&res.fixed, effective_hwnd).err();
                     }
                     res
                 }));
@@ -1679,6 +1676,9 @@ Một giao diện đơn giản để tập trung vào điều anh đang làm."
                         ui.heading("Kết quả sửa chính tả");
                         if let Some(res) = &self.last_spell_result {
                             ui.label(format!("Phương thức: {}", res.method));
+                            if let Some(error) = &res.delivery_error {
+                                ui.label(error);
+                            }
                             ui.separator();
                             ui.label(egui::RichText::new("Văn bản gốc:").weak());
                             ui.label(&res.original);
@@ -1694,7 +1694,10 @@ Một giao diện đơn giản để tập trung vào điều anh đang làm."
                                 if ui.button("Sao chép kết quả").clicked() {
                                     ui.ctx().copy_text(res.fixed.clone());
                                 }
-                                if self.prefs.spell.auto_paste && res.changed {
+                                if self.prefs.spell.auto_paste
+                                    && res.changed
+                                    && res.delivery_error.is_none()
+                                {
                                     ui.label(
                                         egui::RichText::new("Đã tự động dán vào ứng dụng")
                                             .color(Color32::from_rgb(100, 220, 100)),
@@ -1806,7 +1809,12 @@ impl eframe::App for PentaKuru {
         if let Some(res) = system::take(&mut self.spell_job) {
             self.spell_status = None;
             self.last_activity = Instant::now();
-            if res.original.is_empty() {
+            if let Some(error) = &res.delivery_error {
+                self.status = Some(error.clone());
+                self.status_clear = Some(Instant::now() + Duration::from_secs(10));
+                self.last_spell_result = Some(res);
+                self.spell_review_open = true;
+            } else if res.original.is_empty() {
                 self.status = Some("Chưa bôi đen chữ".into());
                 self.status_clear = Some(Instant::now() + Duration::from_secs(3));
             } else if res.changed {

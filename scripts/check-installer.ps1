@@ -31,6 +31,8 @@ if ($firstPlan.installation_id -eq $secondPlan.installation_id) { throw 'Upgrade
 if (-not (Test-Path -LiteralPath (Join-Path $notesDir 'keep.txt'))) { throw 'Upgrade removed user data' }
 $all = Invoke-FixtureSetup 'core,notes,search,spell,sally,office\writer,office\impress,office\calc,music,clip,deeptutor,uitars'
 if (-not $all.applied -or -not $all.writer -or -not $all.impress -or -not $all.calc -or -not $all.music -or -not $all.clip -or -not $all.deeptutor -or -not $all.utilities.enable_ui_tars -or -not $all.utilities.enable_notes -or -not $all.utilities.enable_search -or -not $all.utilities.enable_spell -or -not $all.utilities.enable_sally) { throw 'All-component choices were not applied accurately' }
+if ('Tutor' -notin $all.dock_icons -or 'Spell' -notin $all.dock_icons) { throw 'Tutor and spell icons are missing after setup' }
+if (-not (Test-Path -LiteralPath (Join-Path $fixtureDir 'prerequisites/DeepTutor/bundle-manifest.json'))) { throw 'DeepTutor offline payload missing' }
 $uninstall = Start-Process -FilePath (Join-Path $fixtureDir 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -WindowStyle Hidden -Wait -PassThru
 if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
 if (Test-Path -LiteralPath (Join-Path $fixtureDir 'PentaKuru.exe')) { throw 'Uninstall left the application executable' }

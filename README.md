@@ -6,11 +6,11 @@ Bạn đồng hành trên desktop, viết bằng **Rust**. Bản tích hợp Sal
 
 ## Bộ cài EXE
 
-Chạy `dist/PentaKuru-Setup.exe` để cài từng bước, chọn thư mục và tiện ích. Bộ cài màu tối, các bước chính tiếng Việt, tạo shortcut và hỗ trợ gỡ cài đặt. Tùy chọn sẽ được áp dụng vào PentaKuru; vẫn có thể thay đổi trong Settings. [Hướng dẫn bộ cài](docs/INSTALLER.md).
+Tải [Setup mới nhất](https://github.com/PenTaEcosystem/pentakuruV7/releases/latest/download/PentaKuru-Setup.exe), hoặc chạy `dist/PentaKuru-Setup.exe` để cài từng bước, chọn thư mục và tiện ích. Bộ cài màu tối, các bước chính tiếng Việt, tạo shortcut và hỗ trợ gỡ cài đặt. Tùy chọn sẽ được áp dụng vào PentaKuru; vẫn có thể thay đổi trong Settings. [Hướng dẫn bộ cài](docs/INSTALLER.md).
 
 ## Office · DeepTutor · Music · Clip
 
-Mở `dist/PentaKuru-Office-Media.exe`, vào **Alt+Q → Settings** để bật từng tiện ích. Office tìm tài liệu, dán nhãn theo thư mục, giữ nhiều file active và chỉnh trực tiếp Writer/Impress qua UNO; có sửa chính tả, nâng cấp bài viết, kiểu chữ, căn ảnh, lưu và hoàn tác. Penta Music/Penta Video dùng trực tiếp trang web, giữ đăng nhập, playlist và tìm kiếm gốc; bố cục tối ưu khung nhỏ. Settings cho chọn 0–5 icon riêng, mặc định 4; chức năng không có icon vẫn ở menu chuột phải. DeepTutor HKUDS tải khi bật và dùng cấu hình AI chung khi được chọn.
+Mở `dist/PentaKuru-Office-Media.exe`, vào **Alt+Q → Settings** để bật từng tiện ích. Office tìm tài liệu, dán nhãn theo thư mục, giữ nhiều file active và chỉnh trực tiếp Writer/Impress qua UNO; có sửa chính tả, nâng cấp bài viết, kiểu chữ, căn ảnh, lưu và hoàn tác. Penta Music/Penta Video dùng trực tiếp trang web, giữ đăng nhập, playlist và tìm kiếm gốc; bố cục tối ưu khung nhỏ. Settings cho chọn 0–5 icon riêng, mặc định 4; chức năng không có icon vẫn ở menu chuột phải. Setup v0.1.1 mang theo WebView2 và bộ runtime DeepTutor; chọn DeepTutor trong Setup để cài sẵn, rồi cấu hình API/model khi dùng AI. Bản portable có thể tải runtime khi bật.
 
 Hướng dẫn sử dụng, phụ thuộc runtime, phạm vi hỗ trợ và kiểm chứng: [docs/OFFICE-MEDIA-INTEGRATION.md](docs/OFFICE-MEDIA-INTEGRATION.md). Các tiện ích mới mặc định tắt; không thêm phím tắt. Bản này ưu tiên Writer/Impress; Calc mở tài liệu. DeepTutor có nút cài/mở, tự chuẩn bị Python/Node riêng; embedding được cấu hình riêng. EXE, bộ cài và cửa sổ dùng icon ngũ giác đen viền trắng. [Hướng dẫn DeepTutor](docs/DEEPTUTOR-ONECLICK.md).
 

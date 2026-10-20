@@ -1,0 +1,18 @@
+{
+  "outcomes": "simulated in a test build; shared WebView2 was not changed",
+  "passed": true,
+  "cases": {
+    "present": {
+      "exit_code": 0,
+      "passed": true
+    },
+    "failure": {
+      "exit_code": 7,
+      "passed": true
+    },
+    "missing": {
+      "exit_code": 0,
+      "passed": true
+    }
+  }
+}

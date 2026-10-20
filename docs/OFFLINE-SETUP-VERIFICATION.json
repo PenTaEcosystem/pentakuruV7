@@ -1,0 +1,19 @@
+{
+  "actual_setup_callbacks": true,
+  "webview": "existing Microsoft runtime detected; missing/failure branches tested separately",
+  "passed": true,
+  "deeptutor": {
+    "passed": true,
+    "credentials_used": false,
+    "frontend_status": 200,
+    "frontend_html_bytes": 23284,
+    "catalog_api": 200,
+    "catalog_has_services": true,
+    "backend_ready": 200
+  },
+  "offline_wheels": true,
+  "no_pip_index": true,
+  "clean_windows_vm_tested": false,
+  "private_python_node": true,
+  "selected_icons": true
+}

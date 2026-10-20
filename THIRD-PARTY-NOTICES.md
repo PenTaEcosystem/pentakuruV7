@@ -31,7 +31,7 @@ Optional integrations added in October 2026:
   remain in the MSI distribution. Corresponding upstream source is available at
   https://download.documentfoundation.org/libreoffice/src/26.8.1/
   https://api.libreoffice.org/
-- DeepTutor by HKUDS (Apache-2.0) is installed on demand from PyPI, pinned to 1.6.14.
+- DeepTutor by HKUDS (Apache-2.0) is pinned to 1.6.14. Setup includes the unmodified PyPI wheel and its dependency wheels; the portable executable can install them on demand.
   Its official runtime and frontend are not bundled into this executable.
   https://github.com/HKUDS/DeepTutor/tree/v1.6.14
 - Penta Music and Penta Clip load the user's supplied services in isolated WebView2
@@ -39,4 +39,8 @@ Optional integrations added in October 2026:
   from their respective origins and are not copied into this source archive.
   https://music.pentasys.id.vn/ and https://clip.pentasys.id.vn/
 
-Optional DeepTutor prerequisites are downloaded on demand: Python 3.13.12 (Python Software Foundation license, official NuGet package) and Node.js 24.21.0 LTS (MIT and bundled third-party notices). Their license files remain in the downloaded runtime distribution. They are not embedded in the PentaKuru executable.
+DeepTutor prerequisites are bundled in Setup or downloaded on demand by the portable app: Python 3.13.12 (Python Software Foundation license, official NuGet package) and Node.js 24.21.0 LTS (MIT and bundled third-party notices). Their license files remain in the downloaded runtime distribution. They are not embedded in the PentaKuru executable.
+
+Microsoft Edge WebView2 Evergreen Standalone Installer x64 is redistributed unmodified in Setup. Its Microsoft signature and SHA-256 are verified at build time; SHA-256 is checked before execution. WebView2 is governed by Microsoft's runtime distribution terms:
+https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+Python and Node notices remain in their original archives. Python dependency wheels retain their upstream metadata, license files and notices and are supplied unmodified under their respective licenses.

@@ -187,7 +187,7 @@ pub fn focus_window_by_title(title: &str) {
 }
 
 /// Áp dụng Immersive Dark Mode và Alpha Transparency cho cửa sổ OS để tránh chớp trắng.
-/// Office uses a solid frame without Windows 11 backdrop or native drop shadow.
+/// Office uses a solid, dark native frame without the Windows 11 backdrop.
 pub fn apply_flat_window(title: &str) {
     #[cfg(windows)]
     platform::apply_flat_window(title);
@@ -212,6 +212,18 @@ pub fn set_autostart(enable: bool) -> Result<(), String> {
 /// Chụp toàn bộ màn hình desktop thành dữ liệu ảnh PNG (dành cho UI-TARS và Vision AI).
 pub fn remember_external_foreground() {
     platform::remember_external_foreground();
+}
+
+/// Resolve the editor before a dock button takes focus away from it.
+pub fn external_input_target() -> isize {
+    #[cfg(windows)]
+    {
+        platform::external_input_target()
+    }
+    #[cfg(not(windows))]
+    {
+        0
+    }
 }
 
 pub fn check_window_state() -> Result<String, String> {
@@ -542,9 +554,21 @@ mod platform {
             if hwnd.is_null() {
                 return;
             }
-            // DWMSBT_NONE, DWMWCP_DONOTROUND and DWMNCRP_DISABLED.
+            // Keep DWM non-client rendering enabled. Disabling it restores the
+            // classic blue/white frame and changes its appearance on focus loss.
+            // DWMSBT_NONE, DWMWCP_DONOTROUND, DWMNCRP_ENABLED, dark mode
+            // (current and legacy), border/caption colors and caption text.
             // Unsupported attributes on older Windows are harmless.
-            for (attribute, value) in [(38u32, 1i32), (33, 1), (2, 1)] {
+            for (attribute, value) in [
+                (38u32, 1i32),
+                (33, 1),
+                (2, 2),
+                (20, 1),
+                (19, 1),
+                (34, 0x00191717),
+                (35, 0x00191717),
+                (36, 0x00F3F2F2),
+            ] {
                 let _ = DwmSetWindowAttribute(
                     hwnd,
                     attribute,
@@ -698,6 +722,18 @@ mod platform {
             GetWindowThreadProcessId(hwnd, &mut pid);
             if !hwnd.is_null() && pid != std::process::id() {
                 LAST_EXTERNAL_WINDOW.store(hwnd as isize, Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub fn external_input_target() -> isize {
+        remember_external_foreground();
+        let target = LAST_EXTERNAL_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+        unsafe {
+            if IsWindow(target as _) != 0 {
+                target
+            } else {
+                0
             }
         }
     }

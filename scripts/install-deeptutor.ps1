@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Destination,[switch]$ForcePrivate)
+﻿param([Parameter(Mandatory=$true)][string]$Destination,[switch]$ForcePrivate,[string]$PayloadDirectory='', [switch]$InstallPackages)
 $env:PSModulePath = $PSHOME + '\Modules;' + $env:ProgramFiles + '\WindowsPowerShell\Modules'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -10,6 +10,11 @@ New-Item -ItemType Directory -Path $engineRoot,$cacheRoot -Force | Out-Null
 function Stage([string]$Text) { [IO.File]::WriteAllText((Join-Path $tutorRoot 'install-progress.txt'),$Text,[Text.UTF8Encoding]::new($false)) }
 function Fetch([string]$Uri,[string]$Name,[string]$Hash) {
     $path = Join-Path $cacheRoot $Name
+    if ($PayloadDirectory) {
+        $bundled = Join-Path $PayloadDirectory $Name
+        if (-not (Test-Path -LiteralPath $bundled) -or (Get-FileHash -LiteralPath $bundled -Algorithm SHA256).Hash -ne $Hash) { throw "Invalid bundled runtime: $Name. Run PentaKuru Setup again." }
+        return $bundled
+    }
     if (-not (Test-Path -LiteralPath $path) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $Hash) {
         $step = if ($Name -like 'python-*') { '2/5' } else { '3/5' }
         for ($attempt = 1; $attempt -le 3; $attempt++) {
@@ -109,6 +114,43 @@ try {
     $paths = @{python=$pythonExe;node_dir=$nodeDir} | ConvertTo-Json -Compress
     [IO.File]::WriteAllText((Join-Path $tutorRoot 'runtime-paths.json'),$paths,[Text.UTF8Encoding]::new($false))
     Stage '3/5 · Python và Node.js đã sẵn sàng'
+    if ($InstallPackages) {
+        $venv = Join-Path $tutorRoot 'runtime'
+        $runtimePython = Join-Path $venv 'Scripts/python.exe'
+        $marker = Join-Path $venv '.pentaeye-ready'
+        $ready = (Test-Path -LiteralPath $marker) -and ((Get-Content -LiteralPath $marker -Raw) -eq '1.6.14') -and (Test-Path -LiteralPath $runtimePython)
+        if ($ready) {
+            $checkPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            & $runtimePython -I -c 'import deeptutor.runtime.launcher' 2>&1 | Out-File -LiteralPath (Join-Path $tutorRoot 'package-check.log') -Encoding utf8
+            $ready = $LASTEXITCODE -eq 0
+            $ErrorActionPreference = $checkPreference
+        }
+        if (-not $ready) {
+            Stage '4/5 · Installing DeepTutor libraries'
+            & $pythonExe -I -m venv $venv
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot create the private DeepTutor environment.' }
+            $pipArgs = @('-I','-m','pip','install','--disable-pip-version-check','--only-binary=:all:','--timeout','30','--retries','3')
+            if ($PayloadDirectory) {
+                $manifest = Get-Content -LiteralPath (Join-Path $PayloadDirectory 'bundle-manifest.json') -Raw | ConvertFrom-Json
+                if ($manifest.version -ne '1.6.14') { throw 'Unsupported DeepTutor payload.' }
+                foreach ($entry in $manifest.files.PSObject.Properties) {
+                    $entryPath = [IO.Path]::GetFullPath((Join-Path $PayloadDirectory $entry.Name))
+                    if (-not $entryPath.StartsWith([IO.Path]::GetFullPath($PayloadDirectory).TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid payload path.' }
+                    if ((Get-FileHash -LiteralPath $entryPath -Algorithm SHA256).Hash -ne $entry.Value) { throw "Corrupt DeepTutor payload: $($entry.Name)" }
+                }
+                $pipArgs += @('--no-index','--find-links',(Join-Path $PayloadDirectory 'wheels'),'--constraint',(Join-Path $PayloadDirectory 'constraints.txt'))
+            } else {
+                $pipArgs += @('--constraint',(Join-Path $tutorRoot 'runtime-constraints.txt'))
+            }
+            & $runtimePython @pipArgs 'deeptutor==1.6.14' 2>&1 | Out-File -LiteralPath (Join-Path $tutorRoot 'packages.log') -Encoding utf8
+            if ($LASTEXITCODE -ne 0) { throw ('DeepTutor packages failed. See ' + (Join-Path $tutorRoot 'packages.log')) }
+            & $runtimePython -I -c 'import deeptutor.runtime.launcher'
+            if ($LASTEXITCODE -ne 0) { throw 'DeepTutor package verification failed.' }
+            [IO.File]::WriteAllText($marker,'1.6.14')
+        }
+        Stage '4/5 · DeepTutor runtime ready'
+    }
 } catch {
     [IO.File]::WriteAllText((Join-Path $tutorRoot 'bootstrap-error.txt'),$_.Exception.Message,[Text.UTF8Encoding]::new($false))
     Stage ('Không chuẩn bị được runtime: ' + $_.Exception.Message + '. Chi tiết: ' + (Join-Path $tutorRoot 'bootstrap-error.txt'))

@@ -56,5 +56,6 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := PrepareVcRuntime(NeedsRestart);
+  if Result = '' then Result := PrepareWebView;
   if Result = '' then Result := PrepareOffice;
 end;
