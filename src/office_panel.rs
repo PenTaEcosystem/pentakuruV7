@@ -16,8 +16,10 @@ impl PentaKuru {
                 Ok(office::ResultItem::Indexed(files)) => {
                     self.office.files = files;
                     self.office.indexed = true;
-                    self.office.status =
-                        format!("{} tài liệu · nhãn theo thư mục", self.office.files.len());
+                    self.office.status = format!(
+                        "{} tài liệu · chỉ gán nhãn khi bấm Hệ thống",
+                        self.office.files.len()
+                    );
                 }
                 Ok(office::ResultItem::Labeled(files)) => {
                     self.office.files = files;
@@ -237,149 +239,166 @@ impl PentaKuru {
         ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
         let busy = self.office.job.is_some();
         let mut open_file = None;
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Office").size(13.0).strong());
-            if office_icon(
-                ui,
-                theme::Glyph::Folder,
-                "Hiện / ẩn thư viện tài liệu",
-                true,
-                self.office.library_open,
-            )
-            .on_hover_text("Hiện / ẩn thư viện tài liệu")
-            .clicked()
-            {
-                self.office.library_open = !self.office.library_open;
-                if self.office.library_open {
-                    self.office.filter = None;
-                    self.office.label.clear();
-                    self.office.query.clear();
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 32.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
+                ui.label(egui::RichText::new("Office").size(13.5).strong());
+                if office_icon(
+                    ui,
+                    theme::Glyph::Folder,
+                    "Hiện / ẩn thư viện tài liệu",
+                    true,
+                    self.office.library_open,
+                )
+                .on_hover_text("Hiện / ẩn thư viện tài liệu")
+                .clicked()
+                {
+                    self.office.library_open = !self.office.library_open;
+                    if self.office.library_open {
+                        self.office.filter = None;
+                        self.office.label.clear();
+                        self.office.query.clear();
+                    }
                 }
-            }
-            if office_icon(ui, theme::Glyph::Settings, "Cài đặt Office", true, false).clicked()
-            {
-                self.settings_open = true;
-            }
-            if office_icon(ui, theme::Glyph::Refresh, "Quét lại tài liệu", !busy, false).clicked()
-            {
-                self.start_office_index(ui.ctx());
-            }
-            if office_icon(
-                ui,
-                theme::Glyph::Tag,
-                "AI dán nhãn theo thư mục",
-                !busy && !self.office.files.is_empty(),
-                false,
-            )
-            .clicked()
-            {
-                let files = self.office.files.clone();
-                let ai = self.prefs.ai.clone();
-                let cancel = self.office.cancel.clone();
-                cancel.store(false, Ordering::Relaxed);
-                self.office.status = "AI đang phân loại thư mục…".into();
-                self.office.job = Some(system::Job::spawn(ui.ctx(), move || {
-                    office::classify(files, &ai, &cancel)
-                }));
-            }
-            if office_icon(
-                ui,
-                theme::Glyph::Plus,
-                "Hội thoại mới · xóa chat cũ",
-                !busy,
-                false,
-            )
-            .clicked()
-            {
-                self.office.clear_chat();
-            }
-            if busy {
-                ui.spinner();
-                if office_icon(ui, theme::Glyph::Stop, "Dừng thao tác", true, false).clicked() {
-                    self.office.cancel.store(true, Ordering::Relaxed);
-                    self.office.status = "Đang dừng trước thao tác tiếp theo…".into();
+                if office_icon(ui, theme::Glyph::Settings, "Cài đặt Office", true, false).clicked()
+                {
+                    self.settings_open = true;
                 }
-            }
-        });
+                if office_icon(ui, theme::Glyph::Refresh, "Quét lại tài liệu", !busy, false)
+                    .clicked()
+                {
+                    self.start_office_index(ui.ctx());
+                }
+                if ui
+                    .add_enabled(
+                        !busy && !self.office.files.is_empty(),
+                        egui::Button::new(egui::RichText::new("Hệ thống").size(12.0))
+                            .min_size(egui::vec2(72.0, 26.0))
+                            .corner_radius(8),
+                    )
+                    .on_hover_text("Gán nhãn bằng AI theo thư mục. Chỉ chạy khi bấm nút này.")
+                    .clicked()
+                {
+                    let files = self.office.files.clone();
+                    let ai = self.prefs.ai.clone();
+                    let cancel = self.office.cancel.clone();
+                    cancel.store(false, Ordering::Relaxed);
+                    self.office.status = "AI đang phân loại thư mục…".into();
+                    self.office.job = Some(system::Job::spawn(ui.ctx(), move || {
+                        office::classify(files, &ai, &cancel)
+                    }));
+                }
+                if office_icon(
+                    ui,
+                    theme::Glyph::Plus,
+                    "Hội thoại mới · xóa chat cũ",
+                    !busy,
+                    false,
+                )
+                .clicked()
+                {
+                    self.office.clear_chat();
+                }
+                if busy {
+                    ui.spinner();
+                    if office_icon(ui, theme::Glyph::Stop, "Dừng thao tác", true, false).clicked()
+                    {
+                        self.office.cancel.store(true, Ordering::Relaxed);
+                        self.office.status = "Đang dừng trước thao tác tiếp theo…".into();
+                    }
+                }
+            },
+        );
         if self.office.library_open {
-            ui.add(
+            ui.add_sized(
+                [ui.available_width(), 30.0],
                 egui::TextEdit::singleline(&mut self.office.query)
-                    .font(egui::FontId::proportional(14.0))
+                    .font(egui::FontId::proportional(13.0))
                     .hint_text("Tìm tên, thư mục hoặc nhãn…")
-                    .desired_width(f32::INFINITY),
+                    .margin(egui::vec2(10.0, 6.0)),
             );
-            ui.horizontal(|ui| {
-                let response = office_icon(
-                    ui,
-                    theme::Glyph::File,
-                    "Lọc loại tài liệu",
-                    true,
-                    self.office.filter.is_some(),
-                );
-                egui::Popup::menu(&response).show(|ui| {
-                    if ui
-                        .selectable_value(&mut self.office.filter, None, "Tất cả tài liệu")
-                        .clicked()
-                    {
-                        ui.close();
-                    }
-                    for kind in [
-                        office::Kind::Word,
-                        office::Kind::PowerPoint,
-                        office::Kind::Excel,
-                    ] {
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), 32.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let response = office_icon(
+                        ui,
+                        theme::Glyph::File,
+                        "Lọc loại tài liệu",
+                        true,
+                        self.office.filter.is_some(),
+                    );
+                    egui::Popup::menu(&response).show(|ui| {
                         if ui
-                            .selectable_value(&mut self.office.filter, Some(kind), kind.label())
+                            .selectable_value(&mut self.office.filter, None, "Tất cả tài liệu")
                             .clicked()
                         {
                             ui.close();
                         }
-                    }
-                });
-                let response = office_icon(
-                    ui,
-                    theme::Glyph::Tag,
-                    "Lọc theo nhãn",
-                    true,
-                    !self.office.label.is_empty(),
-                );
-                egui::Popup::menu(&response).show(|ui| {
-                    if ui
-                        .selectable_value(&mut self.office.label, String::new(), "Tất cả nhãn")
-                        .clicked()
-                    {
-                        ui.close();
-                    }
-                    let mut tags: Vec<_> = self
-                        .office
-                        .files
-                        .iter()
-                        .flat_map(|f| f.labels.clone())
-                        .collect();
-                    tags.sort();
-                    tags.dedup();
-                    for tag in tags {
+                        for kind in [
+                            office::Kind::Word,
+                            office::Kind::PowerPoint,
+                            office::Kind::Excel,
+                        ] {
+                            if ui
+                                .selectable_value(
+                                    &mut self.office.filter,
+                                    Some(kind),
+                                    kind.label(),
+                                )
+                                .clicked()
+                            {
+                                ui.close();
+                            }
+                        }
+                    });
+                    let response = office_icon(
+                        ui,
+                        theme::Glyph::Tag,
+                        "Lọc theo nhãn",
+                        true,
+                        !self.office.label.is_empty(),
+                    );
+                    egui::Popup::menu(&response).show(|ui| {
                         if ui
-                            .selectable_value(&mut self.office.label, tag.clone(), tag)
+                            .selectable_value(&mut self.office.label, String::new(), "Tất cả nhãn")
                             .clicked()
                         {
                             ui.close();
                         }
-                    }
-                });
-                theme::caption(
-                    ui,
-                    format!(
-                        "{} · {}",
-                        self.office.filter.map_or("Tất cả", office::Kind::label),
-                        if self.office.label.is_empty() {
-                            "Mọi nhãn"
-                        } else {
-                            &self.office.label
+                        let mut tags: Vec<_> = self
+                            .office
+                            .files
+                            .iter()
+                            .flat_map(|f| f.labels.clone())
+                            .collect();
+                        tags.sort();
+                        tags.dedup();
+                        for tag in tags {
+                            if ui
+                                .selectable_value(&mut self.office.label, tag.clone(), tag)
+                                .clicked()
+                            {
+                                ui.close();
+                            }
                         }
-                    ),
-                );
-            });
+                    });
+                    theme::caption(
+                        ui,
+                        format!(
+                            "{} · {}",
+                            self.office.filter.map_or("Tất cả", office::Kind::label),
+                            if self.office.label.is_empty() {
+                                "Mọi nhãn"
+                            } else {
+                                &self.office.label
+                            }
+                        ),
+                    );
+                },
+            );
             let mut labels = std::collections::BTreeMap::<String, usize>::new();
             for file in &self.office.files {
                 for label in &file.labels {
@@ -416,7 +435,10 @@ impl PentaKuru {
                     });
             }
             if !self.office.status.is_empty()
-                && !self.office.status.contains("tài liệu · nhãn theo thư mục")
+                && !self
+                    .office
+                    .status
+                    .contains("tài liệu · chỉ gán nhãn khi bấm Hệ thống")
             {
                 theme::caption(ui, &self.office.status);
             }
@@ -656,7 +678,10 @@ impl PentaKuru {
                         });
                 }
                 if !self.office.status.is_empty()
-                    && !self.office.status.contains("tài liệu · nhãn theo thư mục")
+                    && !self
+                        .office
+                        .status
+                        .contains("tài liệu · chỉ gán nhãn khi bấm Hệ thống")
                     && !self.office.status.starts_with("Đã mở trong LibreOffice")
                     && (busy
                         || self
@@ -667,7 +692,7 @@ impl PentaKuru {
                 {
                     theme::caption(ui, &self.office.status);
                 }
-                ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.add(
                         egui::TextEdit::multiline(&mut self.office.prompt)
                             .font(egui::FontId::proportional(14.0))
@@ -688,7 +713,7 @@ impl PentaKuru {
                         action = Some(self.office.operation);
                     }
                 });
-                ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     for (kind, glyph) in [
                         (office::Kind::Word, theme::Glyph::Word),
                         (office::Kind::Excel, theme::Glyph::Excel),

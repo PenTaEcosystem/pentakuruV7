@@ -106,7 +106,7 @@ impl PentaKuru {
                 observation.retry_after = now;
                 self.workspace.memory.errors.remove(&note.id);
             }
-            if now.duration_since(observation.changed) < Duration::from_secs(5)
+            if now.duration_since(observation.changed) < Duration::from_secs(2)
                 || now < observation.retry_after
                 || self.workspace.memory.job.is_some()
                 || !self.prefs.ai.ready()

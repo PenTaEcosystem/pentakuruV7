@@ -91,6 +91,8 @@ pub struct NotesManager {
     pub selected_note_id: Option<String>,
     pub search_query: String,
     pub status_message: Option<String>,
+    pub ai_folders: std::collections::HashSet<String>,
+    pub expanded_folders: std::collections::HashSet<String>,
 }
 
 impl Default for NotesManager {
@@ -103,17 +105,14 @@ impl NotesManager {
     pub fn at(root: PathBuf) -> Self {
         let mut mgr = Self {
             root_dir: root,
-            folders: vec![
-                "Chung".into(),
-                "Giáo án & Bài giảng".into(),
-                "Dự án & Lập trình".into(),
-                "Ý tưởng & Công việc".into(),
-            ],
+            folders: vec!["Chung".into()],
             selected_folder: "Chung".into(),
             notes: Vec::new(),
             selected_note_id: None,
             search_query: String::new(),
             status_message: None,
+            ai_folders: std::collections::HashSet::new(),
+            expanded_folders: std::collections::HashSet::new(),
         };
         mgr.init_filesystem();
         mgr.reload();
@@ -149,9 +148,68 @@ impl NotesManager {
         Ok(true)
     }
 
+    fn ai_folders_path(&self) -> PathBuf {
+        self.root_dir.join(".ai_folders.json")
+    }
+
+    fn load_ai_folders(&mut self) {
+        if let Ok(raw) = fs::read_to_string(self.ai_folders_path())
+            && let Ok(list) = serde_json::from_str::<Vec<String>>(&raw)
+        {
+            self.ai_folders = list.into_iter().collect();
+        }
+    }
+
+    fn save_ai_folders(&self) {
+        let mut list: Vec<String> = self.ai_folders.iter().cloned().collect();
+        list.sort();
+        if let Ok(raw) = serde_json::to_string_pretty(&list) {
+            let _ = fs::write(self.ai_folders_path(), raw);
+        }
+    }
+
+    pub fn is_folder_ai_shared(&self, folder: &str) -> bool {
+        self.ai_folders.contains(folder)
+    }
+
+    pub fn toggle_folder_ai(&mut self, folder: &str) -> bool {
+        let enabled = if self.ai_folders.contains(folder) {
+            self.ai_folders.remove(folder);
+            false
+        } else {
+            self.ai_folders.insert(folder.to_string());
+            true
+        };
+        self.save_ai_folders();
+        for note in self.notes.iter_mut().filter(|n| n.folder == folder) {
+            note.ai_shared = enabled;
+            let meta_path = self
+                .root_dir
+                .join(&note.folder)
+                .join(format!("{}.meta.json", note.id));
+            let _ = fs::write(
+                meta_path,
+                serde_json::to_string(&NoteMeta::from(&*note)).unwrap_or_default(),
+            );
+        }
+        enabled
+    }
+
     /// Khởi tạo cấu trúc thư mục trên ổ đĩa
     pub fn init_filesystem(&mut self) {
         let _ = fs::create_dir_all(&self.root_dir);
+        self.load_ai_folders();
+        // Dọn dẹp các thư mục mặc định cũ nếu đang trống hoàn toàn
+        for old_preset in [
+            "Giáo án & Bài giảng",
+            "Dự án & Lập trình",
+            "Ý tưởng & Công việc",
+        ] {
+            let p = self.root_dir.join(old_preset);
+            if p.is_dir() {
+                let _ = fs::remove_dir(&p);
+            }
+        }
         // Tạo các thư mục mặc định nếu chưa có
         for folder in &self.folders {
             let f_path = self.root_dir.join(folder);
@@ -165,7 +223,12 @@ impl NotesManager {
                     && file_type.is_dir()
                 {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if !name.starts_with('.') && !self.folders.contains(&name) {
+                    if !name.starts_with('.')
+                        && !["DeepTutor", "Office", "Sally", "integrations"]
+                            .iter()
+                            .any(|reserved| name.eq_ignore_ascii_case(reserved))
+                        && !self.folders.contains(&name)
+                    {
                         self.folders.push(name);
                     }
                 }
@@ -191,7 +254,7 @@ impl NotesManager {
                             .is_some_and(|name| name.to_string_lossy().ends_with(".meta.json"))
                         && path
                             .extension()
-                            .is_some_and(|ext| ext == "md" || ext == "json")
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
                         && let Some(note) = self.load_note(&path, folder)
                     {
                         self.notes.push(note);
@@ -282,7 +345,7 @@ impl NotesManager {
             updated_at,
             attachments,
             icon: meta.icon,
-            ai_shared: meta.ai_shared,
+            ai_shared: meta.ai_shared || self.ai_folders.contains(folder),
             task_card_id: meta.task_card_id,
             ai_summary: meta.ai_summary,
             summary_source: meta.summary_source,
@@ -291,6 +354,16 @@ impl NotesManager {
 
     /// Tạo ghi chú mới trong thư mục hiện tại
     pub fn create_note(&mut self, title: &str, content: &str) -> String {
+        let folder = if self.selected_folder == "Tất cả" || self.selected_folder.trim().is_empty() {
+            "Chung".to_owned()
+        } else {
+            self.selected_folder.clone()
+        };
+        self.create_note_in_folder(&folder, title, content)
+    }
+
+    /// Tạo ghi chú mới trong một thư mục chỉ định
+    pub fn create_note_in_folder(&mut self, folder_name: &str, title: &str, content: &str) -> String {
         let now = SystemTime::now();
         let date_str = format_date(now);
         let id = format!(
@@ -306,11 +379,20 @@ impl NotesManager {
             content.to_string()
         };
 
-        let folder = if self.selected_folder == "Tất cả" {
+        let folder = if folder_name == "Tất cả" || folder_name.trim().is_empty() {
             "Chung".to_owned()
         } else {
-            self.selected_folder.clone()
+            folder_name.trim().to_owned()
         };
+        let folder_dir = self.root_dir.join(&folder);
+        let _ = fs::create_dir_all(&folder_dir);
+        if !self.folders.contains(&folder) {
+            self.folders.push(folder.clone());
+            self.folders.sort();
+        }
+        self.selected_folder = folder.clone();
+        let ai_shared = self.ai_folders.contains(&folder);
+
         let note = NoteItem {
             id: id.clone(),
             folder: folder.clone(),
@@ -320,7 +402,7 @@ impl NotesManager {
             updated_at: date_str,
             attachments: Vec::new(),
             icon: default_note_icon(),
-            ai_shared: false,
+            ai_shared,
             task_card_id: None,
             ai_summary: String::new(),
             summary_source: String::new(),
@@ -367,6 +449,44 @@ impl NotesManager {
             profile.push_str(&excerpt);
         }
         profile
+    }
+
+    /// Full current text for questions about the selected shared note.
+    pub fn selected_ai_context(&self) -> String {
+        self.notes
+            .iter()
+            .find(|note| Some(&note.id) == self.selected_note_id.as_ref() && note.ai_shared)
+            .map(|note| {
+                format!(
+                    "Nguồn đang mở: {} / {}\n{}",
+                    note.folder,
+                    note.title,
+                    note.content.chars().take(16000).collect::<String>()
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn append_ai_reply(&mut self, reply: &str) -> Result<String, String> {
+        let note = self
+            .notes
+            .iter_mut()
+            .find(|note| Some(&note.id) == self.selected_note_id.as_ref())
+            .ok_or("Chọn một ghi chú trước khi lưu phản hồi AI.")?;
+        let previous = note.content.clone();
+        note.content.push_str("\n\n## Phản hồi AI\n\n");
+        note.content.push_str(reply.trim());
+        let path = self
+            .root_dir
+            .join(&note.folder)
+            .join(format!("{}.md", note.id));
+        if let Err(error) = fs::write(path, &note.content) {
+            note.content = previous;
+            return Err(format!("Chưa lưu được ghi chú: {error}"));
+        }
+        let title = note.title.clone();
+        self.save_selected_note();
+        Ok(format!("Đã thêm phản hồi AI vào ghi chú «{title}»."))
     }
 
     /// Thêm một thư mục mới
@@ -434,6 +554,13 @@ impl NotesManager {
 
             self.notes[pos].folder = target.to_string();
             self.notes[pos].updated_at = format_date(SystemTime::now());
+            if self.ai_folders.contains(target) {
+                self.notes[pos].ai_shared = true;
+            }
+            let _ = fs::write(
+                &new_meta,
+                serde_json::to_string(&NoteMeta::from(&self.notes[pos])).unwrap_or_default(),
+            );
 
             // Cập nhật lại đường dẫn relative của attachments
             for att in &mut self.notes[pos].attachments {
@@ -444,10 +571,14 @@ impl NotesManager {
 
     /// Lưu nội dung ghi chú hiện tại
     pub fn save_selected_note(&mut self) {
+        let ai_folders = self.ai_folders.clone();
         if let Some(id) = &self.selected_note_id
             && let Some(note) = self.notes.iter_mut().find(|n| &n.id == id)
         {
             note.updated_at = format_date(SystemTime::now());
+            if ai_folders.contains(&note.folder) {
+                note.ai_shared = true;
+            }
             // Cập nhật tiêu đề theo dòng đầu tiên nếu dòng đầu là heading
             if let Some(first_line) = note.content.lines().next() {
                 let cleaned = first_line.trim_start_matches('#').trim();
@@ -570,6 +701,65 @@ mod tests {
     }
 
     #[test]
+    fn runtime_and_json_files_are_not_notes() {
+        let mut manager = fixture();
+        for folder in ["DeepTutor", "Office", "Sally", "integrations"] {
+            fs::create_dir_all(manager.root_dir.join(folder)).unwrap();
+            fs::write(manager.root_dir.join(folder).join("README.md"), "runtime").unwrap();
+            fs::write(
+                manager.root_dir.join(folder).join("runtime-paths.json"),
+                r#"{"python":"private runtime"}"#,
+            )
+            .unwrap();
+        }
+        fs::write(
+            manager.root_dir.join("Chung/settings.json"),
+            r#"{"python":"configuration"}"#,
+        )
+        .unwrap();
+        manager = NotesManager::at(manager.root_dir);
+        assert!(
+            !manager
+                .folders
+                .iter()
+                .any(|name| ["DeepTutor", "Office", "Sally", "integrations"]
+                    .contains(&name.as_str()))
+        );
+        assert!(
+            !manager
+                .notes
+                .iter()
+                .any(|note| note.content.contains("runtime")
+                    || note.content.contains("configuration"))
+        );
+    }
+
+    #[test]
+    fn selected_context_is_current_private_by_default_and_reply_is_persisted() {
+        let mut manager = fixture();
+        let id = manager.create_note("Kế hoạch", "# Kế hoạch\n\nNội dung gốc.");
+        assert!(manager.selected_ai_context().is_empty());
+        manager
+            .notes
+            .iter_mut()
+            .find(|note| note.id == id)
+            .unwrap()
+            .ai_shared = true;
+        assert!(manager.selected_ai_context().contains("Nội dung gốc."));
+        manager
+            .append_ai_reply("### Việc tiếp theo\n\nKiểm tra.")
+            .unwrap();
+        manager.reload();
+        let note = manager.notes.iter().find(|note| note.id == id).unwrap();
+        assert!(note.content.starts_with("# Kế hoạch\n\nNội dung gốc."));
+        assert!(
+            note.content
+                .contains("## Phản hồi AI\n\n### Việc tiếp theo")
+        );
+        assert!(manager.selected_ai_context().contains("Kiểm tra."));
+    }
+
+    #[test]
     fn sharing_and_task_link_survive_edits_and_reload_without_metadata_notes() {
         let mut manager = fixture();
         let id = manager.create_note("Bài học", "# Bài học\n\nMục tiêu riêng");
@@ -688,5 +878,22 @@ mod tests {
                 .unwrap()
         );
         assert!(manager.ai_profile().is_empty());
+    }
+
+    #[test]
+    fn folder_ai_auto_enables_new_and_existing_notes() {
+        let mut manager = fixture();
+        manager.add_folder("salto_AI");
+        assert!(manager.toggle_folder_ai("salto_AI"));
+        assert!(manager.is_folder_ai_shared("salto_AI"));
+        let id = manager.create_note_in_folder(
+            "salto_AI",
+            "Kế hoạch Demo ERP",
+            "# Kế hoạch Demo ERP\n\nChuẩn bị demo.",
+        );
+        assert_eq!(manager.visible_notes().len(), 1);
+        let note = manager.notes.iter().find(|n| n.id == id).unwrap();
+        assert_eq!(note.folder, "salto_AI");
+        assert!(note.ai_shared);
     }
 }
