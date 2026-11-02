@@ -104,6 +104,17 @@ mod host {
         }
     }
 
+    pub fn probe_web(label: &'static str, script: String) -> Result<serde_json::Value, String> {
+        let (tx, rx) = mpsc::channel();
+        send(Command::ProbeWeb {
+            label,
+            script,
+            reply: tx,
+        })?;
+        rx.recv_timeout(std::time::Duration::from_secs(3))
+            .map_err(|e| e.to_string())?
+    }
+
     fn language_name(value: &str) -> &str {
         match value {
             "Tiếng Việt" => "Vietnamese",
@@ -322,6 +333,9 @@ mod host {
 
 #[cfg(not(all(windows, feature = "sally-full")))]
 mod host {
+    pub fn probe_web(_: &'static str, _: String) -> Result<serde_json::Value, String> {
+        Err("Điều khiển Music cần bản Windows có WebView2/sally-full.".into())
+    }
     pub fn web_integration_check(_: eframe::egui::Context) {}
     pub fn integration_check(_: eframe::egui::Context) {}
     pub fn open_or_focus_sally(_: &str, _: &str) -> Result<(), String> {

@@ -8,12 +8,11 @@ if (-not $CompilerPath) {
 if (-not $CompilerPath) { throw 'Install Inno Setup 6.7.3+ or provide -CompilerPath.' }
 Push-Location $projectDir
 try {
-    cargo build --release --locked
+    cargo build -p pentakuru --bin pentakuru --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
     & (Join-Path $PSScriptRoot 'prepare-vc-runtime.ps1')
     & (Join-Path $PSScriptRoot 'prepare-office-runtime.ps1')
     & (Join-Path $PSScriptRoot 'prepare-webview-runtime.ps1')
-    & (Join-Path $PSScriptRoot 'prepare-deeptutor-runtime.ps1')
     & $CompilerPath (Join-Path $PSScriptRoot 'pentakuru-setup.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
     Get-FileHash -LiteralPath (Join-Path $projectDir 'dist\PentaKuru-Setup.exe') -Algorithm SHA256

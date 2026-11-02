@@ -22,8 +22,8 @@ mod sally;
 mod sally_panel;
 mod scene;
 mod search;
-mod settings;
 mod server;
+mod settings;
 mod spell;
 mod system;
 mod ui_theme;
@@ -475,12 +475,29 @@ impl PentaKuru {
                     app.workspace.board_open = true;
                     app.workspace.new_card_open = kind == "notes-kanban-form";
                     app.poll_workspace();
-                    app.workspace.board.cards = [("todo", "Lên kế hoạch tuần", "Ghi lại những việc cần ưu tiên."),
+                    app.workspace.board.cards = [
+                        (
+                            "todo",
+                            "Lên kế hoạch tuần",
+                            "Ghi lại những việc cần ưu tiên.",
+                        ),
                         ("doing", "Soạn giáo án", "Hoàn thiện nội dung bài học."),
-                        ("done", "Sắp xếp tài liệu", "Tài liệu đã được lưu trong Notes.")]
-                        .into_iter().enumerate().map(|(i, (status, title, note))| workspace::Card {
-                            id: format!("preview-{i}"), title: title.into(), note: note.into(), status: status.into(), archived: false,
-                        }).collect();
+                        (
+                            "done",
+                            "Sắp xếp tài liệu",
+                            "Tài liệu đã được lưu trong Notes.",
+                        ),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (status, title, note))| workspace::Card {
+                        id: format!("preview-{i}"),
+                        title: title.into(),
+                        note: note.into(),
+                        status: status.into(),
+                        archived: false,
+                    })
+                    .collect();
                 }
 
                 "office" | "office-library" | "office-chat" | "office-small" => {
@@ -1951,15 +1968,18 @@ impl eframe::App for PentaKuru {
                     self.ai_ui(ui);
                 }
                 "settings" => {
-                    egui::Frame::new().fill(theme::PANEL).inner_margin(12).show(ui, |ui| {
-                        ui.set_min_size(ui.available_size());
-                        Self::compact_settings_style(ui);
-                        ui.heading("Cài đặt PentaKuru");
-                        ui.separator();
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            self.ai_connection_settings_ui(ui);
+                    egui::Frame::new()
+                        .fill(theme::PANEL)
+                        .inner_margin(12)
+                        .show(ui, |ui| {
+                            ui.set_min_size(ui.available_size());
+                            Self::compact_settings_style(ui);
+                            ui.heading("Cài đặt PentaKuru");
+                            ui.separator();
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                self.ai_connection_settings_ui(ui);
+                            });
                         });
-                    });
                 }
                 "office" => self.office_ui(ui),
                 "icons" => {

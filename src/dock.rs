@@ -5,7 +5,7 @@ pub fn defaults() -> Vec<Icon> {
     vec![Icon::Note, Icon::Search, Icon::Ai, Icon::Translate]
 }
 impl Icon {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 10] = [
         Self::Note,
         Self::Search,
         Self::Ai,
@@ -15,7 +15,6 @@ impl Icon {
         Self::Office,
         Self::Music,
         Self::Video,
-        Self::Tutor,
         Self::Settings,
     ];
     pub fn label(self) -> &'static str {
@@ -29,7 +28,7 @@ impl Icon {
             Self::Office => "Office",
             Self::Music => "Penta Music",
             Self::Video => "Penta Video",
-            Self::Tutor => "DeepTutor",
+            Self::RetiredTutor => "",
             Self::UiTars => "UI-TARS",
             Self::Settings => "Cài đặt",
         }
@@ -45,7 +44,7 @@ impl Icon {
             Self::Office => p.utilities.enable_office,
             Self::Music => p.integrations.music,
             Self::Video => p.integrations.clip,
-            Self::Tutor => p.integrations.deeptutor,
+            Self::RetiredTutor => false,
             Self::UiTars => false,
             Self::Settings => true,
         }
@@ -54,7 +53,7 @@ impl Icon {
 pub fn normalize(items: &mut Vec<Icon>) {
     let mut seen = Vec::new();
     items.retain(|i| {
-        if *i == Icon::UiTars || seen.contains(i) || seen.len() == 5 {
+        if matches!(*i, Icon::UiTars | Icon::RetiredTutor) || seen.contains(i) || seen.len() == 5 {
             false
         } else {
             seen.push(*i);
@@ -123,7 +122,7 @@ impl PentaKuru {
                     self.integrations.status = e;
                 }
             }
-            Icon::Tutor => self.open_tutor(ctx),
+            Icon::RetiredTutor => {}
             Icon::UiTars => {
                 let already_open = self.ai_open && self.ai_mode == AiMode::UiTars;
                 self.ai_mode = AiMode::UiTars;

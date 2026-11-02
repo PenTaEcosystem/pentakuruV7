@@ -15,7 +15,7 @@ function Invoke-FixtureSetup([string]$Components) {
 }
 
 $custom = Invoke-FixtureSetup 'core,search,office\writer,music,clip'
-if (-not $custom.applied -or -not $custom.writer -or -not $custom.music -or -not $custom.clip -or $custom.impress -or $custom.calc -or $custom.deeptutor -or $custom.utilities.enable_sally -or $custom.utilities.enable_notes -or $custom.utilities.enable_ui_tars) { throw 'Custom choices were not applied accurately' }
+if (-not $custom.applied -or -not $custom.writer -or -not $custom.music -or -not $custom.clip -or $custom.impress -or $custom.calc -or $custom.utilities.enable_sally -or $custom.utilities.enable_notes -or $custom.utilities.enable_ui_tars) { throw 'Custom choices were not applied accurately' }
 $sourceHash = (Get-FileHash -LiteralPath (Join-Path $projectDir 'target\release\pentakuru.exe')).Hash
 if ((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'PentaKuru.exe')).Hash -ne $sourceHash) { throw 'Installed executable differs from release' }
 if (Test-Path -LiteralPath (Join-Path $fixtureDir 'Penteye Notes')) { throw 'Runtime was installed before the application was opened' }
@@ -24,15 +24,23 @@ $firstPlan = Get-Content -LiteralPath (Join-Path $fixtureDir 'installation-optio
 $notesDir = Join-Path $fixtureDir 'Penteye Notes'
 New-Item -ItemType Directory -Path $notesDir -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $notesDir 'keep.txt') -Value 'fixture user data'
+$legacyPayload = Join-Path $fixtureDir 'prerequisites/DeepTutor'
+New-Item -ItemType Directory -Path $legacyPayload -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $legacyPayload 'obsolete-runtime.txt') -Value 'obsolete payload'
+$legacyNotes = Join-Path $notesDir 'DeepTutor'
+New-Item -ItemType Directory -Path $legacyNotes -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $legacyNotes 'keep-learning-notes.txt') -Value 'fixture learning data'
 $minimal = Invoke-FixtureSetup 'core'
-if (-not $minimal.applied -or $minimal.utilities.enable_office -or $minimal.music -or $minimal.clip -or $minimal.deeptutor -or $minimal.utilities.enable_notes -or $minimal.utilities.enable_sally) { throw 'Minimal choices were not applied accurately' }
+if (-not $minimal.applied -or $minimal.utilities.enable_office -or $minimal.music -or $minimal.clip -or $minimal.utilities.enable_notes -or $minimal.utilities.enable_sally) { throw 'Minimal choices were not applied accurately' }
 $secondPlan = Get-Content -LiteralPath (Join-Path $fixtureDir 'installation-options.json') -Raw | ConvertFrom-Json
 if ($firstPlan.installation_id -eq $secondPlan.installation_id) { throw 'Upgrade did not create a new selection revision' }
 if (-not (Test-Path -LiteralPath (Join-Path $notesDir 'keep.txt'))) { throw 'Upgrade removed user data' }
-$all = Invoke-FixtureSetup 'core,notes,search,spell,sally,office\writer,office\impress,office\calc,music,clip,deeptutor,uitars'
-if (-not $all.applied -or -not $all.writer -or -not $all.impress -or -not $all.calc -or -not $all.music -or -not $all.clip -or -not $all.deeptutor -or -not $all.utilities.enable_ui_tars -or -not $all.utilities.enable_notes -or -not $all.utilities.enable_search -or -not $all.utilities.enable_spell -or -not $all.utilities.enable_sally) { throw 'All-component choices were not applied accurately' }
-if ('Tutor' -notin $all.dock_icons -or 'Spell' -notin $all.dock_icons) { throw 'Tutor and spell icons are missing after setup' }
-if (-not (Test-Path -LiteralPath (Join-Path $fixtureDir 'prerequisites/DeepTutor/bundle-manifest.json'))) { throw 'DeepTutor offline payload missing' }
+if (Test-Path -LiteralPath $legacyPayload) { throw 'Upgrade left obsolete tutor payload' }
+if (-not (Test-Path -LiteralPath (Join-Path $legacyNotes 'keep-learning-notes.txt'))) { throw 'Upgrade removed learning data' }
+$all = Invoke-FixtureSetup 'core,notes,search,spell,sally,office\writer,office\impress,office\calc,music,clip,uitars'
+if (-not $all.applied -or -not $all.writer -or -not $all.impress -or -not $all.calc -or -not $all.music -or -not $all.clip -or -not $all.utilities.enable_ui_tars -or -not $all.utilities.enable_notes -or -not $all.utilities.enable_search -or -not $all.utilities.enable_spell -or -not $all.utilities.enable_sally) { throw 'All-component choices were not applied accurately' }
+if ('Tutor' -in $all.dock_icons -or 'Spell' -notin $all.dock_icons) { throw 'Removed tutor or missing spell icon after setup' }
+if (Test-Path -LiteralPath (Join-Path $fixtureDir 'prerequisites/DeepTutor')) { throw 'Removed tutor payload was installed' }
 $uninstall = Start-Process -FilePath (Join-Path $fixtureDir 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -WindowStyle Hidden -Wait -PassThru
 if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
 if (Test-Path -LiteralPath (Join-Path $fixtureDir 'PentaKuru.exe')) { throw 'Uninstall left the application executable' }

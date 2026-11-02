@@ -1,7 +1,8 @@
 {
   "actual_setup_callbacks": true,
-  "webview": "existing Microsoft runtime detected; missing/failure branches tested separately",
   "passed": true,
+  "offline_wheels": true,
+  "office_selected": true,
   "deeptutor": {
     "passed": true,
     "credentials_used": false,
@@ -11,9 +12,10 @@
     "catalog_has_services": true,
     "backend_ready": 200
   },
-  "offline_wheels": true,
-  "no_pip_index": true,
-  "clean_windows_vm_tested": false,
+  "office_prepared": true,
+  "selected_icons": true,
+  "webview": "existing Microsoft runtime detected; missing/failure branches tested separately",
   "private_python_node": true,
-  "selected_icons": true
+  "clean_windows_vm_tested": false,
+  "no_pip_index": true
 }

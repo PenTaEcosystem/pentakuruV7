@@ -1,4 +1,4 @@
-﻿; Build with Inno Setup 6.7.3+; no account credentials are embedded.
+; Build with Inno Setup 6.7.3+; no account credentials are embedded.
 #define Root AddBackslash(SourcePath) + ".."
 #include Root + "\dist\prerequisites\vc-runtime-version.iss"
 #include Root + "\dist\prerequisites\office-runtime-version.iss"
@@ -43,8 +43,13 @@ UninstallDisplayIcon={app}\PentaKuru.exe
 SetupIconFile={#Root}\assets\pentakuru-icon.ico
 WizardImageFile={#Root}\assets\pentakuru-wizard.bmp
 WizardSmallImageFile={#Root}\assets\pentakuru-wizard-small.bmp
+#ifdef PentaKuruTest
+Compression=none
+SolidCompression=no
+#else
 Compression=lzma2
 SolidCompression=yes
+#endif
 OutputDir={#InstallerOutput}
 OutputBaseFilename={#InstallerName}
 LicenseFile={#Root}\LICENSE
@@ -62,7 +67,7 @@ ExitSetupTitle=Thoát bộ cài
 ExitSetupMessage=Cài đặt chưa hoàn tất. Anh có muốn thoát và cài lại sau không?
 SetupWindowTitle=Cài đặt PentaKuru
 WelcomeLabel1=Chào mừng đến với PentaKuru
-WelcomeLabel2=Bộ cài sẽ hướng dẫn anh chọn nơi cài và những tiện ích cần sử dụng.%n%nCó thể thay đổi tiện ích sau trong Settings. LibreOffice đi kèm bộ cài và chỉ cài khi chọn Office; DeepTutor có Python, Node và thư viện đi kèm; Music và Clip cần kết nối Internet.%n%nBấm Tiếp tục để bắt đầu.
+WelcomeLabel2=Bộ cài sẽ hướng dẫn anh chọn nơi cài và những tiện ích cần sử dụng.%n%nCó thể thay đổi tiện ích sau trong Settings. LibreOffice đi kèm bộ cài và chỉ cài khi chọn Office; Music và Clip cần kết nối Internet.%n%nBấm Tiếp tục để bắt đầu.
 ButtonBack=< Quay lại
 ButtonNext=Tiếp tục >
 ButtonInstall=Cài đặt
@@ -78,7 +83,7 @@ SelectDirDesc=PentaKuru sẽ được cài vào thư mục nào?
 SelectDirLabel3=Bấm Tiếp tục để dùng thư mục này hoặc Duyệt để chọn thư mục khác.
 WizardSelectComponents=Chọn tiện ích
 SelectComponentsDesc=Chọn những tiện ích anh muốn sử dụng.
-SelectComponentsLabel2=Bỏ chọn những tiện ích chưa cần. Office cài LibreOffice đi kèm, không cần tải mạng; bỏ chọn thì bỏ qua. DeepTutor cài Python/Node và thư viện đi kèm khi được chọn; cấu hình API/model AI trong Settings để bắt đầu học.
+SelectComponentsLabel2=Bỏ chọn những tiện ích chưa cần. Office cài LibreOffice đi kèm, không cần tải mạng; bỏ chọn thì bỏ qua. Kanban trong Notes lưu trên máy, không cần máy chủ.
 WizardSelectTasks=Tùy chọn bổ sung
 SelectTasksDesc=Chọn biểu tượng truy cập nhanh.
 SelectTasksLabel2=Chọn những tùy chọn anh muốn tạo, sau đó bấm Tiếp tục.
@@ -111,7 +116,6 @@ Name: "office\impress"; Description: "Impress — PowerPoint, AI chỉnh sửa";
 Name: "office\calc"; Description: "Calc — mở bảng tính Excel"; Flags: disablenouninstallwarning
 Name: "music"; Description: "Penta Music — nhạc, playlist và tìm kiếm"; Flags: disablenouninstallwarning
 Name: "clip"; Description: "Penta Clip — video"; Flags: disablenouninstallwarning
-Name: "deeptutor"; Description: "DeepTutor HKUDS — học tập với AI (runtime đi kèm)"; Flags: disablenouninstallwarning
 Name: "uitars"; Description: "UI-TARS — thao tác máy tính bằng AI"; Flags: disablenouninstallwarning
 
 [Tasks]
@@ -121,8 +125,6 @@ Name: "desktopicon"; Description: "Tạo biểu tượng trên Desktop"; Flags: 
 Source: "{#Root}\scripts\install-office.ps1"; Flags: dontcopy
 Source: "{#Root}\dist\prerequisites\vc_redist.x64.exe"; Flags: dontcopy
 Source: "{#Root}\dist\prerequisites\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: dontcopy
-Source: "{#Root}\scripts\install-deeptutor.ps1"; DestDir: "{app}\scripts"; Components: core
-Source: "{#Root}\dist\prerequisites\DeepTutor\*"; DestDir: "{app}\prerequisites\DeepTutor"; Components: deeptutor; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#Root}\dist\prerequisites\LibreOffice-26.8.1.msi"; Flags: dontcopy
 Source: "{#Root}\target\release\pentakuru.exe"; DestDir: "{app}"; DestName: "PentaKuru.exe"; Flags: ignoreversion; Components: core
 Source: "{#Root}\LICENSE"; DestDir: "{app}"; Components: core
@@ -130,12 +132,14 @@ Source: "{#Root}\LICENSE-PENTEYE-MIT"; DestDir: "{app}"; Components: core
 Source: "{#Root}\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Components: core
 Source: "{#Root}\docs\OFFICE-MEDIA-INTEGRATION.md"; DestDir: "{app}\docs"; Components: core
 Source: "{#Root}\docs\INSTALLER.md"; DestDir: "{app}\docs"; Components: core
-Source: "{#Root}\docs\DEEPTUTOR-ONECLICK.md"; DestDir: "{app}\docs"; Components: core
 Source: "{#Root}\docs\CONNECTED-WORKSPACE.md"; DestDir: "{app}\docs"; Components: core
 Source: "{#Root}\dist\PentaKuru-Watch-1.2.3.zab"; DestDir: "{app}\watch"; Components: core; Flags: skipifsourcedoesntexist
 
 [InstallDelete]
 Type: files; Name: "{app}\PentaEye.exe"
+Type: files; Name: "{app}\scripts\install-deeptutor.ps1"
+Type: files; Name: "{app}\docs\DEEPTUTOR-ONECLICK.md"
+Type: filesandordirs; Name: "{app}\prerequisites\DeepTutor"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Penteye"; ValueData: """{app}\PentaKuru.exe"""; Flags: uninsdeletevalue; Check: LegacyAutostartEnabled
@@ -181,10 +185,9 @@ begin
     Plan := Plan + ',"ui_tars":' + SelectedBool('uitars') + ',"writer":' + SelectedBool('office\writer');
     Plan := Plan + ',"impress":' + SelectedBool('office\impress') + ',"calc":' + SelectedBool('office\calc');
     Plan := Plan + ',"music":' + SelectedBool('music') + ',"clip":' + SelectedBool('clip');
-    Plan := Plan + ',"deeptutor":' + SelectedBool('deeptutor') + '}';
+    Plan := Plan + '}';
     PlanPath := ExpandConstant('{app}\installation-options.json');
     if not SaveStringToFile(PlanPath, Plan, False) then
       RaiseException('Không ghi được lựa chọn tiện ích. Vui lòng cài lại vào thư mục có quyền ghi.');
-    PrepareSelectedTutor;
   end;
 end;

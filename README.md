@@ -8,11 +8,13 @@ Bạn đồng hành trên desktop, viết bằng **Rust**. Bản tích hợp Sal
 
 Tải [Setup mới nhất](https://github.com/PenTaEcosystem/pentakuruV7/releases/latest/download/PentaKuru-Setup.exe), hoặc chạy `dist/PentaKuru-Setup.exe` để cài từng bước, chọn thư mục và tiện ích. Bộ cài màu tối, các bước chính tiếng Việt, tạo shortcut và hỗ trợ gỡ cài đặt. Tùy chọn sẽ được áp dụng vào PentaKuru; vẫn có thể thay đổi trong Settings. [Hướng dẫn bộ cài](docs/INSTALLER.md).
 
-## Office · DeepTutor · Music · Clip
+## Notes · Kanban · Office · Music · Clip
 
-Mở `dist/PentaKuru-Office-Media.exe`, vào **Alt+Q → Settings** để bật từng tiện ích. Office tìm tài liệu, dán nhãn theo thư mục, giữ nhiều file active và chỉnh trực tiếp Writer/Impress qua UNO; có sửa chính tả, nâng cấp bài viết, kiểu chữ, căn ảnh, lưu và hoàn tác. Penta Music/Penta Video dùng trực tiếp trang web, giữ đăng nhập, playlist và tìm kiếm gốc; bố cục tối ưu khung nhỏ. Settings cho chọn 0–5 icon riêng, mặc định 4; chức năng không có icon vẫn ở menu chuột phải. Setup v0.1.1 mang theo WebView2 và bộ runtime DeepTutor; chọn DeepTutor trong Setup để cài sẵn, rồi cấu hình API/model khi dùng AI. Bản portable có thể tải runtime khi bật.
+Ghi chú có chế độ xem heading, nút **AI sắp xếp heading** và lưu phản hồi chat vào note. Alt+A hỗ trợ “Anh muốn nghe nhạc”, “Tìm bài hát …”, “Nghe bài …” và “Tạm dừng nhạc” qua Penta Music. [Cách dùng và phạm vi kiểm thử](docs/NOTES-MUSIC-CONTROL.md).
 
-Hướng dẫn sử dụng, phụ thuộc runtime, phạm vi hỗ trợ và kiểm chứng: [docs/OFFICE-MEDIA-INTEGRATION.md](docs/OFFICE-MEDIA-INTEGRATION.md). Các tiện ích mới mặc định tắt; không thêm phím tắt. Bản này ưu tiên Writer/Impress; Calc mở tài liệu. DeepTutor có nút cài/mở, tự chuẩn bị Python/Node riêng; embedding được cấu hình riêng. EXE, bộ cài và cửa sổ dùng icon ngũ giác đen viền trắng. [Hướng dẫn DeepTutor](docs/DEEPTUTOR-ONECLICK.md).
+Cài `dist/PentaKuru-Setup.exe`, mở PentaKuru, vào **Alt+Q → Settings** để bật từng tiện ích. Office tìm tài liệu, chỉ gán nhãn khi bấm Hệ thống, giữ nhiều file active và chỉnh trực tiếp Writer/Impress qua UNO; có sửa chính tả, nâng cấp bài viết, kiểu chữ, căn ảnh, lưu và hoàn tác. Penta Music/Penta Video dùng trực tiếp trang web, giữ đăng nhập, playlist và tìm kiếm gốc; bố cục tối ưu khung nhỏ. Settings cho chọn 0–5 icon riêng, mặc định 4; chức năng không có icon vẫn ở menu chuột phải. Kanban trong Notes lưu cục bộ, có kéo thả ba cột và liên kết note. Setup mang theo WebView2 và LibreOffice.
+
+Hướng dẫn sử dụng, phụ thuộc runtime, phạm vi hỗ trợ và kiểm chứng: [docs/OFFICE-MEDIA-INTEGRATION.md](docs/OFFICE-MEDIA-INTEGRATION.md). Các tiện ích mới mặc định tắt; không thêm phím tắt. Bản này ưu tiên Writer/Impress; Calc mở tài liệu. EXE, bộ cài và cửa sổ dùng icon ngũ giác đen viền trắng.
 
 ## Đồng hồ Bip Max: chat và lệnh Windows
 
@@ -20,7 +22,7 @@ Bản `PentaKuru-Office-Media.exe` đi với `PentaKuru-Watch-1.2.3.zab`: trên 
 
 ## PentaKuru + Sally đầy đủ
 
-Mở `dist/PentaKuru-Office-Media.exe`, rồi nhấn **Alt + T**. Giao diện React gốc và backend Rust của Sally nằm trong cùng ứng dụng, gồm dịch trực tiếp, chọn nguồn âm thanh, cài đặt, lịch sử, nghe lại và xử lý biên bản. Không cần chạy Sally.exe riêng. WebView2 Runtime phải có trên máy.
+Cài `dist/PentaKuru-Setup.exe`, mở PentaKuru, rồi nhấn **Alt + T**. Giao diện React gốc và backend Rust của Sally nằm trong cùng ứng dụng, gồm dịch trực tiếp, chọn nguồn âm thanh, cài đặt, lịch sử, nghe lại và xử lý biên bản. Không cần chạy Sally.exe riêng. WebView2 Runtime phải có trên máy.
 
 Nút × ẩn cửa sổ Sally; cuộc họp đang chạy vẫn tiếp tục. Bấm kết thúc trong Sally để dừng cuộc họp. Alt + T mở lại cửa sổ. Chi tiết biên dịch và lưu dữ liệu: [docs/SALLY-INTEGRATION.md](docs/SALLY-INTEGRATION.md).
 
@@ -116,7 +118,7 @@ Các lệnh kiểm tra giao diện native:
 
 ## Chạy bản Windows
 
-Mở `dist/PentaKuru-Office-Media.exe` hoặc giải nén `dist/PentaKuru-Office-Media-Windows-x64.zip`. Đóng các bản Penta và Sally cũ trước khi chạy bản mới, rồi bấm Alt + T để mở Sally đầy đủ. Không cần cài Rust hoặc Node.js để chạy. Yêu cầu GPU/driver hỗ trợ OpenGL và WebView2 Runtime. Mã nguồn tương ứng nằm trong `dist/PentaKuru-Office-Media-Source.zip`.
+Cài `dist/PentaKuru-Setup.exe` rồi mở PentaKuru. Đóng các bản Penta và Sally cũ trước khi chạy bản mới, rồi bấm Alt + T để mở Sally đầy đủ. Không cần cài Rust hoặc Node.js để chạy. Yêu cầu GPU/driver hỗ trợ OpenGL và WebView2 Runtime. Mã nguồn nằm trong dự án này.
 
 Khi khởi chạy lần đầu, ứng dụng sẽ tự động khởi tạo thư mục dữ liệu `Penteye Notes` ngay cạnh file thực thi.
 

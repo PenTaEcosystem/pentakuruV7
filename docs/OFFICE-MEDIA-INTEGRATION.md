@@ -1,6 +1,6 @@
-# Office, DeepTutor, Penta Music và Penta Clip
+# Office, Penta Music và Penta Clip
 
-Ngày triển khai: 13/10/2026. Bản Windows x64, WebView2. Các tiện ích mới mặc định tắt; bật trong Alt+Q → Settings. Không có phím tắt Office/Music/Clip/DeepTutor mới.
+Ngày triển khai: 13/10/2026. Bản Windows x64, WebView2. Các tiện ích mới mặc định tắt; bật trong Alt+Q → Settings. Không có phím tắt Office/Music/Clip mới.
 
 ## Office
 
@@ -8,7 +8,7 @@ Mở mục **Office · Writer / Impress / Calc**, bật Office và chọn các �
 
 - Tài liệu mở trong cửa sổ LibreOffice thật. PentaKuru chỉ hiện bảng điều khiển nhỏ, tab active và yêu cầu AI.
 - **Tài liệu** mở danh sách có tìm kiếm, lọc Word/PowerPoint/Excel, lọc nhãn và Unknown. Thư mục nguồn mỗi dòng một đường dẫn; bấm Quét lại sau khi đổi.
-- Nhãn thư mục được tính ngay khi quét. **AI dán nhãn** phân loại các thư mục theo lô bằng cấu hình AI chung. Menu chuột phải file → Đổi nhãn để sửa thủ công; nhãn thủ công không bị ghi đè.
+- Quét file mặc định không gán nhãn. Bấm **Hệ thống** để AI phân loại các thư mục theo lô bằng cấu hình AI chung. Menu chuột phải file → Đổi nhãn để sửa thủ công; nhãn thủ công không bị ghi đè.
 - Bấm file thêm active, bấm tab đưa đúng cửa sổ LibreOffice lên. Nút × bỏ active, tài liệu vẫn mở để người dùng xử lý thay đổi chưa lưu trong LibreOffice.
 - Các phạm vi: Vùng đang chọn, File đang xem, Các file giao AI. Với phạm vi nhiều file, checkbox chỉ định file được sửa; danh sách được chốt trước khi chạy.
 - **Sửa chính tả / Nâng cấp bài viết** dùng model AI PentaKuru. **Căn giữa ảnh / Đổi kiểu chữ / Lưu / Hoàn tác** chạy UNO trực tiếp, không cần gọi model.
@@ -39,31 +39,16 @@ PentaKuru mở trực tiếp trang Music và Clip trong WebView riêng, tối ư
 
 WebView Music/Clip không được cấp capabilities của Sally và chỉ điều hướng trong origin dịch vụ tương ứng. API key AI không được chuyển sang Music/Clip.
 
-## DeepTutor HKUDS
-
-Bấm **Cài đặt / mở DeepTutor** để tự chuẩn bị Python 3.13.12, Node.js 24.21.0 và `deeptutor==1.6.14` trong thư mục riêng. Có tiến độ, nút Dừng và thử lại. Không cần cài Python/Node thủ công, không sửa PATH hệ thống. Cài/mở được khi chưa có API key; phần AI cần cấu hình model. [Luồng cài và tường lửa](DEEPTUTOR-ONECLICK.md).
-
-**Dùng API key/model AI của PentaKuru** tạo/cập nhật riêng profile `PentaKuru AI` trong catalog DeepTutor, chọn nó cho LLM và task model. Giữ nguyên profile khác và cấu hình embedding. Gemini/Anthropic dùng binding tương ứng; các provider tương thích OpenAI dùng binding OpenAI và đúng base URL.
-
-- Chọn provider/model AI trong PentaKuru trước khi bật chế độ dùng chung.
-- Bấm **Kết nối lại / đồng bộ AI** sau khi đổi cấu hình AI.
-- DeepTutor dùng API key dạng mà cấu hình chính thức của nó yêu cầu trong file catalog riêng; không đưa key vào URL hoặc command line. Không ghi catalog vào mã nguồn hoặc gói phát hành.
-- Embedding/RAG, search hoặc speech có cấu hình riêng trong DeepTutor; không mặc định lấy model chat làm model embedding.
-- Runtime riêng ở `Penteye Notes/DeepTutor`. Cổng dành cho tiện ích: backend 3896, frontend 3897. Bộ khởi động buộc cả hai bind localhost, không mở cổng cho LAN.
-- Tắt tiện ích dừng cây tiến trình PentaKuru khởi tạo, giữ runtime/dữ liệu để lần sau mở nhanh. Không dừng DeepTutor do người dùng chạy độc lập.
-
 ## Kiểm chứng
 
 - Rust: bộ kiểm thử, strict Clippy, giới hạn icon và menu chuột phải.
 - Office: DOCX/PPTX thử nghiệm thật, mở có giao diện, sửa, style, căn ảnh, hoàn tác, lưu/mở lại và từ chối revision cũ. Không dùng tài liệu cá nhân.
-- DeepTutor: bản PyPI chính thức khởi động bằng runner cục bộ; frontend và API catalog trả HTTP 200. Không có API key/model call thật.
 - Music/Clip: kiểm tra DOM trong WebView2 thật, audio engine, tìm kiếm và đăng nhập gốc, bố cục khung nhỏ, mở/đóng. Không đăng nhập tài khoản thật trong kiểm thử.
 
 ## Nguồn chính thức
 
 - LibreOffice UNO: https://api.libreoffice.org/
 - Định dạng Office: https://help.libreoffice.org/latest/en-US/text/shared/guide/ms_user.html
-- DeepTutor v1.6.14: https://github.com/HKUDS/DeepTutor/tree/v1.6.14
 - Penta Music: https://music.pentasys.id.vn/
 - Penta Clip: https://clip.pentasys.id.vn/feed/subscriptions
 

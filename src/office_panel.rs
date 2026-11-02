@@ -343,11 +343,7 @@ impl PentaKuru {
                             office::Kind::Excel,
                         ] {
                             if ui
-                                .selectable_value(
-                                    &mut self.office.filter,
-                                    Some(kind),
-                                    kind.label(),
-                                )
+                                .selectable_value(&mut self.office.filter, Some(kind), kind.label())
                                 .clicked()
                             {
                                 ui.close();

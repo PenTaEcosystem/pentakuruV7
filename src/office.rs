@@ -172,7 +172,9 @@ fn library_path() -> PathBuf {
     system::data_dir().join("Office/library.json")
 }
 pub fn save_library(files: &[File]) -> Result<(), String> {
-    let path = library_path();
+    save_library_at(files, &library_path())
+}
+fn save_library_at(files: &[File], path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     std::fs::write(
         path,
@@ -180,51 +182,17 @@ pub fn save_library(files: &[File]) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())
 }
-pub fn folder_labels(path: &Path) -> Vec<String> {
-    let mut names = Vec::new();
-    for parent in path.ancestors().skip(1).take(3) {
-        let Some(name) = parent.file_name().and_then(|v| v.to_str()) else {
-            continue;
-        };
-        let lower = name.to_lowercase();
-        if ["new folder", "untitled", "tmp", "temp"]
-            .iter()
-            .any(|prefix| lower.starts_with(prefix))
-            || [
-                "desktop",
-                "documents",
-                "downloads",
-                "new folder",
-                "tmp",
-                "temp",
-                "final",
-                "office",
-            ]
-            .contains(&lower.as_str())
-            || name.chars().all(|c| c.is_numeric())
-            || name.len() < 3
-        {
-            continue;
-        }
-        // Only use meaningful folder names; unknown names are left for AI/user review.
-        if lower.contains(' ')
-            || lower.contains("giáo")
-            || lower.contains("bài")
-            || lower.contains("report")
-            || lower.contains("lớp")
-            || lower.contains("lesson")
-            || lower.contains("project")
-        {
-            names.push(name.to_owned());
-        }
-    }
-    if names.is_empty() {
-        names.push("Unknown".into());
-    }
-    names
-}
 pub fn index(settings: &Settings, cancel: &AtomicBool) -> Result<Vec<File>, String> {
-    let saved: Vec<File> = std::fs::read(library_path())
+    let internal = system::data_dir().join("Office").canonicalize().ok();
+    index_at(settings, cancel, &library_path(), internal)
+}
+fn index_at(
+    settings: &Settings,
+    cancel: &AtomicBool,
+    library: &Path,
+    internal_office: Option<PathBuf>,
+) -> Result<Vec<File>, String> {
+    let saved: Vec<File> = std::fs::read(library)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default();
@@ -234,7 +202,6 @@ pub fn index(settings: &Settings, cancel: &AtomicBool) -> Result<Vec<File>, Stri
         .collect();
     let mut seen = HashSet::new();
     let mut files = Vec::new();
-    let internal_office = system::data_dir().join("Office").canonicalize().ok();
     for root in settings
         .roots
         .lines()
@@ -288,10 +255,7 @@ pub fn index(settings: &Settings, cancel: &AtomicBool) -> Result<Vec<File>, Stri
             if !seen.insert(path.clone()) {
                 continue;
             }
-            let labels = old
-                .get(&path)
-                .map(|f| f.labels.clone())
-                .unwrap_or_else(|| folder_labels(&path));
+            let labels = old.get(&path).map(|f| f.labels.clone()).unwrap_or_default();
             files.push(File {
                 name: entry.file_name().to_string_lossy().into(),
                 manual: old.get(&path).is_some_and(|f| f.manual),
@@ -303,7 +267,7 @@ pub fn index(settings: &Settings, cancel: &AtomicBool) -> Result<Vec<File>, Stri
         }
     }
     files.sort_by_key(|f| f.name.to_lowercase());
-    save_library(&files)?;
+    save_library_at(&files, library)?;
     Ok(files)
 }
 pub fn program(settings: &Settings) -> Option<PathBuf> {
@@ -377,7 +341,7 @@ pub fn create(settings: &Settings, kind: Kind) -> Result<ResultItem, String> {
                 path,
                 name,
                 kind,
-                labels: vec!["PentaKuru".into()],
+                labels: Vec::new(),
                 manual: false,
                 last_opened: 0,
             },
@@ -719,10 +683,29 @@ mod tests {
         );
     }
     #[test]
-    fn ambiguous_folder_is_unknown() {
-        assert_eq!(
-            folder_labels(Path::new("Downloads/New folder/123.docx")),
-            vec!["Unknown"]
-        );
+    fn indexing_does_not_assign_labels_and_preserves_existing_labels() {
+        let root = std::env::temp_dir().join(format!("penta-office-index-{}", std::process::id()));
+        let documents = root.join("Project Reports");
+        std::fs::create_dir_all(&documents).unwrap();
+        std::fs::write(documents.join("report.docx"), "fixture").unwrap();
+        let library = root.join("library.json");
+        let settings = Settings {
+            roots: documents.display().to_string(),
+            ..Default::default()
+        };
+        let cancel = AtomicBool::new(false);
+        let mut files = index_at(&settings, &cancel, &library, None).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].labels.is_empty());
+        files[0].labels = vec!["Nhãn của tôi".into()];
+        files[0].manual = true;
+        save_library_at(&files, &library).unwrap();
+        let files = index_at(&settings, &cancel, &library, None).unwrap();
+        assert_eq!(files[0].labels, vec!["Nhãn của tôi"]);
+        assert!(files[0].manual);
+        std::fs::remove_file(documents.join("report.docx")).unwrap();
+        std::fs::remove_file(library).unwrap();
+        std::fs::remove_dir(documents).unwrap();
+        std::fs::remove_dir(root).unwrap();
     }
 }

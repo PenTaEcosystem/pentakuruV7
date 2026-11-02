@@ -13,7 +13,7 @@ fn main() {
             .set("ProductName", "PentaKuru")
             .set(
                 "FileDescription",
-                "PentaKuru Office, Music, Video and DeepTutor",
+                "PentaKuru Notes, Kanban, Office, Music and Video",
             )
             .compile()
             .expect("Cannot build PentaKuru's Windows manifest");

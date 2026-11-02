@@ -354,7 +354,8 @@ impl NotesManager {
 
     /// Tạo ghi chú mới trong thư mục hiện tại
     pub fn create_note(&mut self, title: &str, content: &str) -> String {
-        let folder = if self.selected_folder == "Tất cả" || self.selected_folder.trim().is_empty() {
+        let folder = if self.selected_folder == "Tất cả" || self.selected_folder.trim().is_empty()
+        {
             "Chung".to_owned()
         } else {
             self.selected_folder.clone()
@@ -363,7 +364,12 @@ impl NotesManager {
     }
 
     /// Tạo ghi chú mới trong một thư mục chỉ định
-    pub fn create_note_in_folder(&mut self, folder_name: &str, title: &str, content: &str) -> String {
+    pub fn create_note_in_folder(
+        &mut self,
+        folder_name: &str,
+        title: &str,
+        content: &str,
+    ) -> String {
         let now = SystemTime::now();
         let date_str = format_date(now);
         let id = format!(
@@ -669,6 +675,7 @@ impl NotesManager {
     }
 
     /// Lấy danh sách ghi chú theo thư mục đang chọn và từ khóa tìm kiếm
+    #[cfg(test)]
     pub fn visible_notes(&self) -> Vec<&NoteItem> {
         self.notes
             .iter()

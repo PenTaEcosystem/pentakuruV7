@@ -19,7 +19,7 @@ exe = dist / f"{artifact_name}.exe"
 shutil.copy2(root / args.binary, exe)
 notices = ["README.md", "LICENSE", "LICENSE-PENTEYE-MIT", "THIRD-PARTY-NOTICES.md",
            "assets/fonts/OFL.txt", "docs/SALLY-INTEGRATION.md", "docs/SALLY-AUDIO-FIX.md",
-           "vendor/penta-bip/README.md", "docs/OFFICE-MEDIA-INTEGRATION.md", "docs/INSTALLER.md", "docs/DEEPTUTOR-ONECLICK.md"]
+           "vendor/penta-bip/README.md", "docs/OFFICE-MEDIA-INTEGRATION.md", "docs/INSTALLER.md", "docs/CONNECTED-WORKSPACE.md"]
 with zipfile.ZipFile(dist / f"{artifact_name}-Windows-x64.zip", "w", zipfile.ZIP_DEFLATED) as out:
     out.write(exe, exe.name)
     if args.watch:

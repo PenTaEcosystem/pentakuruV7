@@ -217,7 +217,14 @@ impl Board {
             if !items.is_empty() {
                 out.push_str(&format!("- {status_label}:\n"));
                 for card in items.into_iter().take(25) {
-                    let desc: String = card.note.lines().next().unwrap_or("").chars().take(80).collect();
+                    let desc: String = card
+                        .note
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .chars()
+                        .take(80)
+                        .collect();
                     if desc.trim().is_empty() {
                         out.push_str(&format!("  • {}\n", card.title));
                     } else {
@@ -519,7 +526,7 @@ impl PentaKuru {
         self.poll_workspace();
 
         let (total, todo_c, doing_c, done_c) = self.workspace.board.stats();
-        let pct = if total > 0 { (done_c * 100) / total } else { 0 };
+        let pct = (done_c * 100).checked_div(total).unwrap_or(0);
         let busy = self.ai_job.is_some() || self.ui_agent.is_active;
 
         // Hàng điều khiển Kanban thu gọn cỡ chữ nhỏ + Icon mini
@@ -527,11 +534,9 @@ impl PentaKuru {
             ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
             ui.label(egui::RichText::new("Công việc").size(12.5).strong());
             ui.label(
-                egui::RichText::new(format!(
-                    "· {total} việc ({pct}% hoàn tất)"
-                ))
-                .size(10.5)
-                .color(theme::MUTED),
+                egui::RichText::new(format!("· {total} việc ({pct}% hoàn tất)"))
+                    .size(10.5)
+                    .color(theme::MUTED),
             );
             let form_label = if self.workspace.new_card_open {
                 "− Thu gọn"
@@ -617,15 +622,14 @@ impl PentaKuru {
                                 egui::Button::new("Thêm công việc"),
                             )
                             .clicked()
-                        {
-                            if self.board_request(Request::Create {
+                            && self.board_request(Request::Create {
                                 title: self.workspace.new_title.clone(),
                                 content: self.workspace.new_content.clone(),
-                            }) {
-                                self.workspace.new_title.clear();
-                                self.workspace.new_content.clear();
-                                self.workspace.new_card_open = false;
-                            }
+                            })
+                        {
+                            self.workspace.new_title.clear();
+                            self.workspace.new_content.clear();
+                            self.workspace.new_card_open = false;
                         }
                         if ui.small_button("Hủy").clicked() {
                             self.workspace.new_card_open = false;
@@ -779,11 +783,8 @@ impl PentaKuru {
                                                         )
                                                         .wrap(),
                                                     );
-                                                    let snippet: String = card
-                                                        .note
-                                                        .chars()
-                                                        .take(100)
-                                                        .collect();
+                                                    let snippet: String =
+                                                        card.note.chars().take(100).collect();
                                                     if !snippet.trim().is_empty() {
                                                         ui.add(
                                                             egui::Label::new(

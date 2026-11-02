@@ -18,7 +18,8 @@ struct Options {
     calc: bool,
     music: bool,
     clip: bool,
-    deeptutor: bool,
+    #[serde(default, rename = "deeptutor")]
+    _legacy_tutor: bool,
 }
 
 fn apply(path: &Path, prefs: &mut Preferences) -> Result<bool, String> {
@@ -48,13 +49,8 @@ fn apply(path: &Path, prefs: &mut Preferences) -> Result<bool, String> {
     prefs.utilities.enable_office = options.writer || options.impress || options.calc;
     prefs.integrations.music = options.music;
     prefs.integrations.clip = options.clip;
-    prefs.integrations.deeptutor = options.deeptutor;
-    // Setup choices must also be discoverable on a fresh PC. Reserve a place
-    // for the selected tutor/spell tools before filling the five-icon dock.
+    // Expose selected utilities on a fresh PC.
     let mut icons = Vec::new();
-    if options.deeptutor {
-        icons.push(Icon::Tutor);
-    }
     if options.spell {
         icons.push(Icon::Spell);
     }
@@ -94,7 +90,7 @@ pub fn check_installed(output: &str) {
     let report = serde_json::json!({"applied":result.as_ref().copied().unwrap_or(false),
         "error":result.err(),"utilities":prefs.utilities,"writer":prefs.office.writer,
         "impress":prefs.office.impress,"calc":prefs.office.calc,
-        "music":prefs.integrations.music,"clip":prefs.integrations.clip,"deeptutor":prefs.integrations.deeptutor,
+        "music":prefs.integrations.music,"clip":prefs.integrations.clip,
         "dock_icons":prefs.dock_icons});
     let _ = std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap());
 }
@@ -113,7 +109,7 @@ mod tests {
         };
         assert!(apply(&path, &mut prefs).unwrap());
         assert!(prefs.utilities.enable_office && prefs.office.writer && prefs.integrations.music);
-        assert!(!prefs.utilities.enable_sally && !prefs.integrations.deeptutor);
+        assert!(!prefs.utilities.enable_sally);
         assert_eq!(prefs.note, "existing note");
         prefs.integrations.music = false;
         assert!(!apply(&path, &mut prefs).unwrap());
@@ -122,13 +118,13 @@ mod tests {
     }
 
     #[test]
-    fn fresh_install_exposes_tutor_and_spell_and_keeps_later_dock_choices() {
+    fn legacy_install_ignores_removed_tutor_and_preserves_dock_choices() {
         let path =
             std::env::temp_dir().join(format!("penta-setup-dock-{}.json", std::process::id()));
         std::fs::write(&path, r#"{"schema":1,"installation_id":"tutor-spell-install","notes":true,"search":true,"spell":true,"sally":true,"ui_tars":false,"writer":false,"impress":false,"calc":false,"music":true,"clip":true,"deeptutor":true}"#).unwrap();
         let mut prefs = Preferences::default();
         assert!(apply(&path, &mut prefs).unwrap());
-        assert!(prefs.dock_icons.contains(&Icon::Tutor));
+        assert!(!prefs.dock_icons.contains(&Icon::RetiredTutor));
         assert!(prefs.dock_icons.contains(&Icon::Spell));
         assert_eq!(prefs.dock_icons.len(), 5);
         prefs.dock_icons = vec![Icon::Ai];

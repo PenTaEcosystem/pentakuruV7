@@ -1,10 +1,10 @@
 {
   "minimal_choices": true,
-  "installed_exe_matches_release": true,
-  "all_choices": true,
-  "custom_choices": true,
-  "upgrade_preserves_data": true,
-  "passed": true,
   "uninstall_preserves_data": true,
-  "no_premature_runtime": true
+  "custom_choices": true,
+  "passed": true,
+  "no_premature_runtime": true,
+  "all_choices": true,
+  "upgrade_preserves_data": true,
+  "installed_exe_matches_release": true
 }

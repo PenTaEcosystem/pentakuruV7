@@ -6,6 +6,8 @@ use crate::{
 use eframe::egui::{Color32, Painter, Pos2, Shape, Stroke, Vec2};
 use std::collections::BTreeSet;
 
+const CAMERA: V3 = V3(0.0, 0.0, 5.8);
+
 pub fn project(v: V3, center: Pos2, scale: f32) -> Pos2 {
     let perspective = 5.8 / (5.8 - v.2);
     center + Vec2::new(v.0, -v.1) * (scale * perspective)
@@ -49,7 +51,7 @@ pub fn draw(p: &Painter, solid: &Solid, scene: &Scene) {
         .filter(|f| {
             let c = f.iter().fold(V3::default(), |s, i| s + vertices[*i]) * 0.2;
             let n = (vertices[f[1]] - vertices[f[0]]).cross(vertices[f[2]] - vertices[f[0]]);
-            n.dot(V3(0.0, 0.0, 5.8) - c) > 0.0
+            n.dot(CAMERA - c) > 0.0
         })
         .collect();
     faces.sort_by(|a, b| {
@@ -64,6 +66,13 @@ pub fn draw(p: &Painter, solid: &Solid, scene: &Scene) {
             Stroke::NONE,
         ));
     }
+    let mut edges = BTreeSet::new();
+    for face in &faces {
+        for i in 0..face.len() {
+            let (a, b) = (face[i], face[(i + 1) % face.len()]);
+            edges.insert((a.min(b), a.max(b)));
+        }
+    }
     let eye = V3(
         0.17 * (t * 0.57).sin(),
         0.13 * (t * 0.41).cos(),
@@ -72,14 +81,6 @@ pub fn draw(p: &Painter, solid: &Solid, scene: &Scene) {
     let eye_pos = project(eye, center, scale) + gaze * scale * 0.14;
     let radius = scale * 0.46 * (5.8 / (5.8 - eye.2));
     draw_eye(p, eye_pos, radius, openness, unit, glow);
-    let mut edges = BTreeSet::new();
-    for face in &faces {
-        for i in 0..5 {
-            let a = face[i];
-            let b = face[(i + 1) % 5];
-            edges.insert((a.min(b), a.max(b)));
-        }
-    }
     let pulse = 0.88 + 0.12 * (t * 0.85).sin();
     for (a, b) in edges {
         let line = [projected[a], projected[b]];
@@ -121,6 +122,54 @@ fn draw_eye(p: &Painter, center: Pos2, radius: f32, openness: f32, unit: f32, gl
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rear_edges_are_not_drawn() {
+        let solid = Solid::dodecahedron();
+        for seconds in [0.0, 1234.0, 35000.0] {
+            let angles = Angles::at(seconds);
+            let ctx = eframe::egui::Context::default();
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                draw(
+                    ui.painter(),
+                    &solid,
+                    &Scene {
+                        center: Pos2::new(80.0, 80.0),
+                        scale: 24.0,
+                        time: 0.0,
+                        angles,
+                        gaze: Vec2::ZERO,
+                        openness: 1.0,
+                        unit: 1.0,
+                        glow: 0.0,
+                    },
+                );
+            });
+            output.textures_delta.clear();
+            let count = output.shapes.iter().filter(|shape| {
+                matches!(&shape.shape, Shape::LineSegment { stroke, .. } if stroke.color.a() > 0)
+            }).count();
+            let vertices: Vec<_> = solid
+                .vertices
+                .iter()
+                .map(|v| v.rotate(angles.yaw, angles.pitch, angles.roll))
+                .collect();
+            let mut expected = BTreeSet::new();
+            for face in &solid.faces {
+                let center = face.iter().fold(V3::default(), |sum, i| sum + vertices[*i]) * 0.2;
+                let normal = (vertices[face[1]] - vertices[face[0]])
+                    .cross(vertices[face[2]] - vertices[face[0]]);
+                if normal.dot(CAMERA - center) > 0.0 {
+                    for i in 0..5 {
+                        let (a, b) = (face[i], face[(i + 1) % 5]);
+                        expected.insert((a.min(b), a.max(b)));
+                    }
+                }
+            }
+            assert_eq!(count, expected.len());
+            assert!(count < 30, "rear edges must be omitted");
+        }
+    }
+
     #[test]
     fn projection_respects_depth_and_stays_inside_window() {
         let c = Pos2::new(80.0, 70.0);
