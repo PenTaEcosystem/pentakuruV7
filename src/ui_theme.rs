@@ -102,6 +102,10 @@ pub enum Glyph {
     Word,
     Excel,
     Presentation,
+    Edit,
+    Archive,
+    Chart,
+    List,
 }
 
 pub const NOTE_ICONS: &[(&str, Glyph, &str)] = &[
@@ -198,6 +202,54 @@ pub fn toolbar_icon(
     response.on_hover_text(label)
 }
 
+pub fn mini_icon(
+    ui: &mut egui::Ui,
+    kind: Glyph,
+    label: &str,
+    enabled: bool,
+    selected: bool,
+) -> Response {
+    let enabled = enabled && ui.is_enabled();
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::splat(24.0),
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    let accent = Color32::from_rgb(100, 220, 175);
+    if selected || (enabled && response.hovered()) {
+        ui.painter().rect_filled(
+            rect,
+            6,
+            if selected {
+                Color32::from_rgb(34, 65, 54)
+            } else {
+                SURFACE
+            },
+        );
+    }
+    if response.has_focus() {
+        ui.painter()
+            .rect_stroke(rect, 6, Stroke::new(1.0, TEXT), egui::StrokeKind::Inside);
+    }
+    draw_icon(
+        ui.painter(),
+        rect.center(),
+        kind,
+        if !enabled {
+            MUTED
+        } else if selected {
+            accent
+        } else {
+            TEXT
+        },
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    response.on_hover_text(label)
+}
+
 pub fn draw_icon(p: &egui::Painter, c: Pos2, kind: Glyph, color: Color32) {
     let s = Stroke::new(1.5, color);
     let line = |a: (f32, f32), b: (f32, f32)| {
@@ -225,7 +277,7 @@ pub fn draw_icon(p: &egui::Painter, c: Pos2, kind: Glyph, color: Color32) {
                 c,
                 egui::Align2::CENTER_CENTER,
                 label,
-                FontId::proportional(15.0),
+                FontId::proportional(12.5),
                 color,
             );
         }
@@ -521,6 +573,76 @@ pub fn draw_icon(p: &egui::Painter, c: Pos2, kind: Glyph, color: Color32) {
             p.circle_stroke(c + Vec2::new(0.0, 1.0), 2.5, s);
             line((-3.0, -4.0), (3.0, -4.0));
         }
+        Glyph::Edit => {
+            p.add(egui::Shape::closed_line(
+                vec![
+                    c + Vec2::new(-5.0, 5.0),
+                    c + Vec2::new(-2.0, 5.0),
+                    c + Vec2::new(5.0, -2.0),
+                    c + Vec2::new(2.0, -5.0),
+                    c + Vec2::new(-5.0, 2.0),
+                ],
+                s,
+            ));
+            line((-6.0, 6.0), (6.0, 6.0));
+        }
+        Glyph::Archive => {
+            p.rect_stroke(
+                egui::Rect::from_min_size(c + Vec2::new(-6.0, -5.0), Vec2::new(12.0, 3.0)),
+                1,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            p.rect_stroke(
+                egui::Rect::from_min_size(c + Vec2::new(-5.0, -2.0), Vec2::new(10.0, 7.0)),
+                1,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            line((-2.0, 1.0), (2.0, 1.0));
+        }
+        Glyph::Chart => {
+            line((-6.0, 6.0), (6.0, 6.0));
+            line((-4.0, 6.0), (-4.0, 1.0));
+            line((0.0, 6.0), (0.0, -4.0));
+            line((4.0, 6.0), (4.0, -2.0));
+        }
+        Glyph::List => {
+            for y in [-4.5, 0.0, 4.5] {
+                p.circle_filled(c + Vec2::new(-5.5, y), 1.2, color);
+                line((-2.5, y), (6.0, y));
+            }
+        }
+    }
+}
+
+/// Vẽ nền sổ tay kẻ dòng đánh số tối giản theo phong cách LIST (Ảnh 3).
+pub fn draw_lined_notepad_bg(p: &egui::Painter, rect: egui::Rect, line_step: f32) {
+    let line_stroke = Stroke::new(1.0, Color32::from_white_alpha(18));
+    let sub_stroke = Stroke::new(1.0, Color32::from_white_alpha(9));
+    let num_color = Color32::from_white_alpha(95);
+    let left_x = rect.min.x + 26.0;
+    let right_x = (rect.max.x - 10.0).max(left_x + 20.0);
+    let mut y = rect.min.y + 30.0;
+    let mut idx = 1usize;
+    while y < rect.max.y - 12.0 {
+        p.text(
+            Pos2::new(rect.min.x + 10.0, y - 2.0),
+            egui::Align2::LEFT_CENTER,
+            idx.to_string(),
+            FontId::proportional(10.0),
+            num_color,
+        );
+        p.line_segment([Pos2::new(left_x, y), Pos2::new(right_x, y)], line_stroke);
+        let sub_y = y + line_step * 0.5;
+        if sub_y < rect.max.y - 12.0 {
+            p.line_segment(
+                [Pos2::new(left_x, sub_y), Pos2::new(right_x, sub_y)],
+                sub_stroke,
+            );
+        }
+        y += line_step;
+        idx += 1;
     }
 }
 

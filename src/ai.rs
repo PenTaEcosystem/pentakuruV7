@@ -47,7 +47,7 @@ impl Provider {
             Provider::XAi => "xAI Grok",
             Provider::UiTars => "UI-TARS (ByteDance GUI Agent)",
             Provider::Ollama => "Ollama (chạy trên máy)",
-            Provider::Custom => "Tương thích OpenAI (tự nhập URL)",
+            Provider::Custom => "Custom · Proxy tương thích OpenAI",
         }
     }
 
@@ -894,6 +894,156 @@ pub fn ui_command(prompt: &str) -> Option<&str> {
         .then(|| prompt[end..].trim())
 }
 
+/// Nhận diện lệnh `@note` / `#note` để AI viết ghi chú & tạo danh sách công việc.
+pub fn note_command(prompt: &str) -> Option<&str> {
+    let prompt = prompt.trim();
+    let end = prompt.find(char::is_whitespace).unwrap_or(prompt.len());
+    let token = &prompt[..end];
+    ["@note", "#note", "@ghichu", "#ghichu"]
+        .iter()
+        .any(|prefix| token.eq_ignore_ascii_case(prefix))
+        .then(|| prompt[end..].trim())
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AiNotePlan {
+    pub title: String,
+    pub content: String,
+    pub tasks: Vec<(String, String, String)>,
+}
+
+/// Phân tích phản hồi của AI từ lệnh `@note` thành nội dung ghi chú và danh sách công việc Kanban.
+pub fn parse_ai_note_response(reply: &str, fallback_title: &str) -> AiNotePlan {
+    let mut title = String::new();
+    let mut body_lines = Vec::new();
+    let mut tasks: Vec<(String, String, String)> = Vec::new();
+    let mut in_task_section = false;
+
+    for raw_line in reply.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.starts_with("```") {
+            continue;
+        }
+        if let Some(h1) = trimmed.strip_prefix("# ") {
+            if title.is_empty() {
+                title = h1.trim().trim_matches('*').trim().to_string();
+            }
+            in_task_section = false;
+            body_lines.push(raw_line.to_string());
+            continue;
+        }
+        if trimmed.starts_with("## ") || trimmed.starts_with("### ") {
+            let lower = trimmed.to_lowercase();
+            in_task_section = lower.contains("công việc")
+                || lower.contains("việc cần làm")
+                || lower.contains("danh sách việc")
+                || lower.contains("task")
+                || lower.contains("todo")
+                || lower.contains("hành động");
+            body_lines.push(raw_line.to_string());
+            continue;
+        }
+
+        let mut extracted: Option<(&str, &str)> = None;
+        if let Some(rest) = trimmed
+            .strip_prefix("- [ ] ")
+            .or_else(|| trimmed.strip_prefix("* [ ] "))
+            .or_else(|| trimmed.strip_prefix("TASK:"))
+            .or_else(|| trimmed.strip_prefix("TODO:"))
+        {
+            extracted = Some(("todo", rest.trim()));
+        } else if let Some(rest) = trimmed
+            .strip_prefix("- [~] ")
+            .or_else(|| trimmed.strip_prefix("* [~] "))
+            .or_else(|| trimmed.strip_prefix("DOING:"))
+        {
+            extracted = Some(("doing", rest.trim()));
+        } else if let Some(rest) = trimmed
+            .strip_prefix("- [x] ")
+            .or_else(|| trimmed.strip_prefix("- [X] "))
+            .or_else(|| trimmed.strip_prefix("* [x] "))
+            .or_else(|| trimmed.strip_prefix("DONE:"))
+        {
+            extracted = Some(("done", rest.trim()));
+        } else if in_task_section {
+            if let Some(rest) = trimmed
+                .strip_prefix("- ")
+                .or_else(|| trimmed.strip_prefix("* "))
+                .or_else(|| trimmed.strip_prefix("• "))
+            {
+                extracted = Some(("todo", rest.trim()));
+            } else if let Some(dot_idx) = trimmed.find(". ")
+                && trimmed[..dot_idx].chars().all(|c| c.is_ascii_digit())
+                && dot_idx > 0
+                && dot_idx <= 3
+            {
+                extracted = Some(("todo", trimmed[dot_idx + 2..].trim()));
+            }
+        }
+
+        if let Some((status, item_text)) = extracted {
+            let clean_item = item_text.trim_matches('*').trim();
+            if !clean_item.is_empty() {
+                let (t_title, t_desc) = if let Some((a, b)) = clean_item.split_once('|') {
+                    (a.trim().trim_matches('*').trim(), b.trim())
+                } else if let Some((a, b)) = clean_item.split_once(" — ") {
+                    (a.trim().trim_matches('*').trim(), b.trim())
+                } else if let Some((a, b)) = clean_item.split_once(": ") {
+                    (a.trim().trim_matches('*').trim(), b.trim())
+                } else {
+                    (clean_item, "")
+                };
+                if !t_title.is_empty()
+                    && !tasks
+                        .iter()
+                        .any(|(existing, _, _)| existing.eq_ignore_ascii_case(t_title))
+                {
+                    tasks.push((t_title.to_string(), t_desc.to_string(), status.to_string()));
+                }
+                let checkbox = match status {
+                    "done" => "[x]",
+                    "doing" => "[~]",
+                    _ => "[ ]",
+                };
+                if t_desc.is_empty() {
+                    body_lines.push(format!("- {checkbox} {t_title}"));
+                } else {
+                    body_lines.push(format!("- {checkbox} **{t_title}**: {t_desc}"));
+                }
+                continue;
+            }
+        }
+
+        body_lines.push(raw_line.to_string());
+    }
+
+    if title.is_empty() {
+        title = fallback_title
+            .lines()
+            .next()
+            .unwrap_or("Ghi chú AI")
+            .trim_start_matches('#')
+            .trim()
+            .chars()
+            .take(70)
+            .collect();
+        if title.is_empty() {
+            title = "Ghi chú AI".into();
+        }
+    }
+
+    let mut content = body_lines.join("\n").trim().to_string();
+    if !content.starts_with("# ") {
+        content = format!("# {title}\n\n{content}");
+    }
+
+    AiNotePlan {
+        title,
+        content,
+        tasks,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiAgentStep {
     pub thought: String,
@@ -1217,5 +1367,45 @@ mod tests {
         let text3 = "Thought: Đã xong việc\nAction: finished(message=\"Hoàn thành\")";
         let step3 = parse_ui_agent_step(text3);
         assert!(matches!(step3.action, UiAgentAction::Finished { .. }));
+    }
+
+    #[test]
+    fn test_note_command_and_parse_ai_note_response() {
+        assert_eq!(
+            note_command("  @note Lập kế hoạch tuần "),
+            Some("Lập kế hoạch tuần")
+        );
+        assert_eq!(note_command("#NOTE\nChuẩn bị demo"), Some("Chuẩn bị demo"));
+        assert_eq!(note_command("@note"), Some(""));
+        assert_eq!(note_command("@notebook"), None);
+
+        let reply = "# Kế hoạch chuẩn bị Demo\n\nNội dung chính của buổi demo.\n\n## Công việc\n- [ ] Chuẩn bị slide: Hoàn thiện 10 trang giới thiệu\n- [~] Kiểm thử hệ thống | Chạy bộ test tự động\n- [x] Gửi lịch họp: Đã gửi cho cả nhóm";
+        let plan = parse_ai_note_response(reply, "Fallback");
+        assert_eq!(plan.title, "Kế hoạch chuẩn bị Demo");
+        assert_eq!(plan.tasks.len(), 3);
+        assert_eq!(
+            plan.tasks[0],
+            (
+                "Chuẩn bị slide".into(),
+                "Hoàn thiện 10 trang giới thiệu".into(),
+                "todo".into()
+            )
+        );
+        assert_eq!(
+            plan.tasks[1],
+            (
+                "Kiểm thử hệ thống".into(),
+                "Chạy bộ test tự động".into(),
+                "doing".into()
+            )
+        );
+        assert_eq!(
+            plan.tasks[2],
+            (
+                "Gửi lịch họp".into(),
+                "Đã gửi cho cả nhóm".into(),
+                "done".into()
+            )
+        );
     }
 }
