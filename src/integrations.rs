@@ -1,7 +1,7 @@
 //! Optional Penta media and background process helpers.
 use serde::{Deserialize, Serialize};
 use std::{
-    process::{Child, Command, Stdio},
+    process::Child,
     sync::{Arc, atomic::AtomicBool},
 };
 
@@ -44,18 +44,17 @@ pub fn clip_open() -> Result<(), String> {
         clip_script(),
     )
 }
-pub fn background_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+#[cfg(windows)]
+pub fn background_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
     let mut command = Command::new(program);
     command.env_remove("PYTHONHOME").env_remove("PYTHONPATH");
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
+    command.creation_flags(0x08000000);
     command
 }
 pub fn stop_child(child: &mut Child) {
