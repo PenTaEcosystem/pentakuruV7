@@ -8,7 +8,6 @@ Rust hỗ trợ nhiều nền tảng, nhưng API hệ điều hành và thư vi�
 | Đồng hồ: HTTP/BLE bridge và chat | Có | Có mã dùng chung; cần kiểm tra thực tế với thiết bị |
 | Sally nhúng, khung Music/Clip | WebView2 | Chưa port khung nhúng |
 | Office Writer/Impress/Calc qua UNO | Có | Bridge hiện tìm soffice.exe/python.exe; chưa port |
-| Cài DeepTutor một nút | Python/Node riêng trên Windows | Chưa port bộ cài runtime |
 | Chụp màn hình/thao tác AI/tự khởi động | API Windows | Chưa triển khai; không coi build thành công là có các chức năng này |
 
 Linux: gói tar.gz chứa binary, icon, giấy phép và hướng dẫn. Cần desktop X11/Wayland, OpenGL, ALSA, xdg-open; hộp chọn file dùng zenity. Build Ubuntu cần pkg-config, libasound2-dev, libdbus-1-dev và các thư viện X11/Wayland/OpenGL trong workflow.

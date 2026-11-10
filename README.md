@@ -163,4 +163,4 @@ Mã đồng hồ nằm trong `vendor/penta-bip`, target hiện tại Amazfit Bip
 
 ## Đổi tên từ PentaEye
 
-Tên sản phẩm và bộ cài là PentaKuru; binary Rust là `pentakuru.exe`. Các định danh lưu trữ cũ (`Penteye`, `Penteye Notes`, `com.penteye.studio` và profile DeepTutor) được giữ để đọc lại cấu hình, ghi chú và đăng nhập đã có. AppId bộ cài giữ nguyên để nâng cấp tại thư mục cũ. Thông báo MIT gốc được giữ nguyên trong `LICENSE-PENTEYE-MIT`. Không đưa API key, dữ liệu cá nhân hoặc runtime đã tải vào Git.
+Tên sản phẩm và bộ cài là PentaKuru; binary Rust là `pentakuru.exe`. Các định danh lưu trữ cũ (`Penteye`, `Penteye Notes`, `com.penteye.studio`) được giữ để đọc lại cấu hình, ghi chú và đăng nhập đã có. AppId bộ cài giữ nguyên để nâng cấp tại thư mục cũ. Thông báo MIT gốc được giữ nguyên trong `LICENSE-PENTEYE-MIT`. Không đưa API key, dữ liệu cá nhân hoặc runtime đã tải vào Git.

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 use walkdir::WalkDir;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -97,6 +97,48 @@ pub struct SearchState {
     pub is_indexing: Arc<Mutex<bool>>,
     #[allow(dead_code)]
     pub status: Option<String>,
+    /// When the last index finished; also part of the result cache key.
+    indexed_at: Arc<Mutex<Option<Instant>>>,
+    /// Inputs of the last `update_search`, so per-frame calls are free.
+    last_key: Option<(String, SearchFilter, Option<Instant>)>,
+}
+
+const PER_ROOT_LIMIT: usize = 3000;
+const REINDEX_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// Folders worth indexing, most useful first; each gets its own budget so a
+/// crowded Desktop can no longer starve Notes or the Start Menu apps.
+fn index_roots() -> Vec<std::path::PathBuf> {
+    let home = home_dir();
+    let mut roots = vec![data_dir()];
+    // Start Menu shortcuts make installed apps (LibreOffice, Office, …) searchable.
+    for var in ["APPDATA", "ProgramData"] {
+        if let Some(base) = std::env::var_os(var) {
+            roots
+                .push(std::path::PathBuf::from(base).join("Microsoft/Windows/Start Menu/Programs"));
+        }
+    }
+    roots.extend(["Desktop", "Documents", "Downloads"].map(|d| home.join(d)));
+    roots
+}
+
+/// Lower is better: exact, prefix, word start, then any-term match.
+fn rank(name: &str, query: &str) -> Option<u8> {
+    let name = crate::system::fold(name);
+    if name == query {
+        Some(0)
+    } else if name.starts_with(query) {
+        Some(1)
+    } else if name
+        .match_indices(query)
+        .any(|(at, _)| !name[..at].ends_with(char::is_alphanumeric))
+    {
+        Some(2)
+    } else if query.split_whitespace().all(|term| name.contains(term)) {
+        Some(3)
+    } else {
+        None
+    }
 }
 
 impl Default for SearchState {
@@ -118,6 +160,8 @@ impl SearchState {
             total_wasted_bytes: Arc::new(Mutex::new(0)),
             is_indexing: Arc::new(Mutex::new(false)),
             status: None,
+            indexed_at: Arc::new(Mutex::new(None)),
+            last_key: None,
         }
     }
 
@@ -153,48 +197,52 @@ impl SearchState {
         let dups_arc = self.duplicate_groups.clone();
         let wasted_arc = self.total_wasted_bytes.clone();
         let indexing_arc = self.is_indexing.clone();
+        let indexed_at = self.indexed_at.clone();
+        // Claim the indexer before spawning so repeated calls never pile up threads.
+        {
+            let Ok(mut lock) = indexing_arc.lock() else {
+                return;
+            };
+            if *lock {
+                return;
+            }
+            *lock = true;
+        }
 
         thread::spawn(move || {
-            {
-                let mut lock = indexing_arc.lock().unwrap();
-                if *lock {
-                    return;
-                }
-                *lock = true;
-            }
-
             let mut items: Vec<SearchResult> = Vec::new();
             let mut hash_map: HashMap<(u64, u64), Vec<usize>> = HashMap::new();
 
-            let home = home_dir();
-            let notes = data_dir();
-
-            let target_dirs = vec![
-                home.join("Desktop"),
-                home.join("Documents"),
-                home.join("Downloads"),
-                notes,
-            ];
-
-            for root in target_dirs {
+            let mut seen = std::collections::HashSet::new();
+            for root in index_roots() {
                 if !root.is_dir() {
                     continue;
                 }
+                let start = items.len();
                 for entry in WalkDir::new(&root)
-                    .max_depth(3)
+                    .min_depth(1)
+                    .max_depth(4)
                     .into_iter()
                     .filter_entry(|e| {
                         let name = e.file_name().to_string_lossy();
                         !name.starts_with('.')
-                            && name != "node_modules"
-                            && name != "target"
-                            && name != ".git"
+                            && !["node_modules", "target", "__pycache__", "runtime", "venv"]
+                                .contains(&name.as_ref())
                     })
                     .flatten()
                 {
                     let path = entry.path();
-                    let name = entry.file_name().to_string_lossy().to_string();
+                    // Documents may contain the notes folder: index each path once.
+                    if !seen.insert(path.to_path_buf()) {
+                        continue;
+                    }
                     let kind = SearchKind::from_path(path);
+                    let raw_name = entry.file_name().to_string_lossy().to_string();
+                    // "LibreOffice Writer.lnk" is shown and matched as "LibreOffice Writer".
+                    let name = match raw_name.strip_suffix(".lnk") {
+                        Some(stem) if kind == SearchKind::App => stem.to_owned(),
+                        _ => raw_name,
+                    };
                     let metadata = entry.metadata().ok();
                     let size_bytes = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
                     let size = metadata
@@ -219,7 +267,9 @@ impl SearchState {
                     });
 
                     // Tính hash cho file để phát hiện trùng lặp
+                    // Shortcuts are tiny and expected to repeat; only hash real files.
                     if entry.file_type().is_file()
+                        && kind != SearchKind::App
                         && size_bytes > 0
                         && size_bytes <= 1_000_000_000
                         && let Some(h) = Self::quick_hash(path, size_bytes)
@@ -227,7 +277,7 @@ impl SearchState {
                         hash_map.entry((size_bytes, h)).or_default().push(idx);
                     }
 
-                    if items.len() >= 4000 {
+                    if items.len() - start >= PER_ROOT_LIMIT {
                         break;
                     }
                 }
@@ -279,6 +329,9 @@ impl SearchState {
             if let Ok(mut lock) = wasted_arc.lock() {
                 *lock = total_wasted;
             }
+            if let Ok(mut lock) = indexed_at.lock() {
+                *lock = Some(Instant::now());
+            }
             if let Ok(mut lock) = indexing_arc.lock() {
                 *lock = false;
             }
@@ -287,7 +340,7 @@ impl SearchState {
 
     /// Trích xuất ngữ cảnh RAG từ các tệp văn bản/mã nguồn máy tính
     pub fn get_rag_context(&self, query: &str, max_files: usize) -> String {
-        let q_lower = query.to_lowercase();
+        let q_lower = crate::system::fold(query);
         let terms: Vec<&str> = q_lower.split_whitespace().collect();
         if terms.is_empty() {
             return String::new();
@@ -304,13 +357,13 @@ impl SearchState {
                 if matches!(item.kind, SearchKind::Document | SearchKind::Code) {
                     let p = Path::new(&item.path);
                     if let Ok(content) = std::fs::read_to_string(p) {
-                        let content_lower = content.to_lowercase();
+                        let content_lower = crate::system::fold(&content);
                         // Kiểm tra nếu có bất kỳ từ khóa nào xuất hiện
                         if terms.iter().any(|t| content_lower.contains(t)) {
                             // Trích xuất đoạn chứa từ khóa
                             let mut snippet = String::new();
                             for line in content.lines() {
-                                let line_l = line.to_lowercase();
+                                let line_l = crate::system::fold(line);
                                 if terms.iter().any(|t| line_l.contains(t)) {
                                     snippet.push_str(line.trim());
                                     snippet.push('\n');
@@ -338,7 +391,7 @@ impl SearchState {
 
     /// Tìm kiếm RAG full-text trong nội dung tệp
     pub fn search_rag_content(&self, q: &str) -> Vec<SearchResult> {
-        let q_lower = q.to_lowercase();
+        let q_lower = crate::system::fold(q);
         let terms: Vec<&str> = q_lower.split_whitespace().collect();
         if terms.is_empty() {
             return Vec::new();
@@ -358,12 +411,12 @@ impl SearchState {
                         let mut handle = file.take(65536);
                         let mut text = String::new();
                         if handle.read_to_string(&mut text).is_ok() {
-                            let text_l = text.to_lowercase();
+                            let text_l = crate::system::fold(&text);
                             if terms.iter().all(|t| text_l.contains(t)) {
                                 // Trích xuất dòng khớp đầu tiên
                                 let mut matched_line = String::new();
                                 for line in text.lines() {
-                                    if terms.iter().any(|t| line.to_lowercase().contains(t)) {
+                                    if terms.iter().any(|t| crate::system::fold(line).contains(t)) {
                                         matched_line = line.trim().to_string();
                                         break;
                                     }
@@ -384,6 +437,17 @@ impl SearchState {
 
     /// Cập nhật kết quả tìm kiếm theo query và bộ lọc
     pub fn update_search(&mut self) {
+        let indexed_at = self.indexed_at.lock().ok().and_then(|at| *at);
+        // Files appear/disappear while the app runs; refresh a stale index in the background.
+        if indexed_at.is_some_and(|at| at.elapsed() > REINDEX_AFTER) {
+            self.start_background_indexing();
+        }
+        // Called every frame while the bar is open: recompute only when inputs change.
+        let key = (self.query.clone(), self.filter, indexed_at);
+        if self.last_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.last_key = Some(key);
         let raw_q = self.query.trim();
         self.results.clear();
 
@@ -505,32 +569,27 @@ impl SearchState {
             });
         }
 
-        let q_lower = q.to_lowercase();
+        let q_fold = crate::system::fold(q);
         if let Ok(files) = self.indexed_files.lock() {
             let is_path_query = q.contains('\\') || q.contains('/');
-            let mut matches: Vec<SearchResult> = files
+            let single_char = q_fold.chars().count() == 1;
+            // Rank every match first, then keep the best 15 (apps win ties).
+            let mut matches: Vec<(u8, bool, usize, &SearchResult)> = files
                 .iter()
-                .filter(|item| {
-                    if is_path_query {
-                        item.path.to_lowercase().contains(&q_lower)
-                    } else if q_lower.len() == 1 {
-                        item.name.to_lowercase().starts_with(&q_lower)
+                .filter_map(|item| {
+                    let score = if is_path_query {
+                        crate::system::fold(&item.path)
+                            .contains(&q_fold)
+                            .then_some(3)
                     } else {
-                        item.name.to_lowercase().contains(&q_lower)
-                    }
+                        rank(&item.name, &q_fold).filter(|s| !single_char || *s <= 1)
+                    }?;
+                    Some((score, item.kind != SearchKind::App, item.name.len(), item))
                 })
-                .take(15)
-                .cloned()
                 .collect();
-
-            // Sắp xếp ưu tiên khớp tên chính xác hơn
-            matches.sort_by(|a, b| {
-                let a_exact = a.name.to_lowercase().starts_with(&q_lower);
-                let b_exact = b.name.to_lowercase().starts_with(&q_lower);
-                b_exact.cmp(&a_exact)
-            });
-
-            self.results.extend(matches);
+            matches.sort_by_key(|m| (m.0, m.1, m.2));
+            self.results
+                .extend(matches.into_iter().take(15).map(|m| m.3.clone()));
         }
     }
 
@@ -541,5 +600,50 @@ impl SearchState {
     pub fn reveal_item(&self, item: &SearchResult) -> Result<(), String> {
         let p = Path::new(&item.path);
         reveal(p)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(name: &str, kind: SearchKind) -> SearchResult {
+        SearchResult {
+            name: name.into(),
+            path: format!("C:/x/{name}"),
+            kind,
+            size: String::new(),
+            size_bytes: 0,
+            modified: String::new(),
+            snippet: None,
+            dup_copies: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn ranks_all_matches_before_truncating_and_ignores_accents() {
+        let mut state = SearchState::empty();
+        {
+            let mut files = state.indexed_files.lock().unwrap();
+            for i in 0..40 {
+                files.push(item(
+                    &format!("ghi chu libreoffice {i}.txt"),
+                    SearchKind::Document,
+                ));
+            }
+            files.push(item("LibreOffice Writer", SearchKind::App));
+            files.push(item("Giáo án Toán.docx", SearchKind::Document));
+        }
+        state.query = "libreoffice".into();
+        state.update_search();
+        assert_eq!(state.results[0].name, "LibreOffice Writer");
+        assert_eq!(state.results.len(), 15);
+        state.query = "giao an".into();
+        state.update_search();
+        assert_eq!(state.results[0].name, "Giáo án Toán.docx");
+        // Unchanged inputs reuse the cached results.
+        state.results.clear();
+        state.update_search();
+        assert!(state.results.is_empty());
     }
 }

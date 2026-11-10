@@ -470,6 +470,11 @@ impl PentaKuru {
                     };
                 }
                 "notes" | "notes-small" => app.notes_open = true,
+                "notes-tree" => {
+                    app.notes_open = true;
+                    app.workspace.library_open = true;
+                    app.notes_mgr.collapsed_folders.insert("Giáo án".into());
+                }
                 "notes-kanban" | "notes-kanban-small" | "notes-kanban-form" => {
                     app.notes_open = true;
                     app.workspace.board_open = true;
@@ -2478,11 +2483,11 @@ enum Icon {
     Office,
     Music,
     Video,
-    // Read old saved docks without resetting other preferences.
-    #[serde(rename = "Tutor")]
-    RetiredTutor,
     UiTars,
     Settings,
+    // Any removed dock icon in old preferences loads as this and is dropped by `dock::normalize`.
+    #[serde(other)]
+    Retired,
 }
 
 fn icon_button(
@@ -2667,7 +2672,7 @@ fn icon_button(
                 );
             }
         }
-        Icon::RetiredTutor => {}
+        Icon::Retired => {}
         Icon::UiTars => {
             p.rect_stroke(
                 Rect::from_center_size(
@@ -2813,7 +2818,7 @@ fn main() -> eframe::Result {
             ])
         })
         .unwrap_or(match preview_kind {
-            Some("notes" | "notes-kanban") => [900.0, 620.0],
+            Some("notes" | "notes-kanban" | "notes-tree") => [900.0, 620.0],
             Some("notes-small" | "notes-kanban-small") => [660.0, 460.0],
             Some("sally" | "translate") => [540.0, 440.0],
             Some("search") | Some("ai") => [540.0, 64.0],

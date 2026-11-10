@@ -281,7 +281,7 @@ impl PentaKuru {
                 )
                 .show(viewport_ui, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.horizontal(|ui| {
                         let search_w = (ui.available_width() - 28.0).max(80.0);
                         ui.add_sized(
                             [search_w, 26.0],
@@ -309,7 +309,7 @@ impl PentaKuru {
                                 [input_w, 26.0],
                                 egui::TextEdit::singleline(&mut self.new_folder_input)
                                     .font(egui::FontId::proportional(11.5))
-                                    .hint_text("Tên thư mục mới…"),
+                                    .hint_text("Tên thư mục · Cha/Con"),
                             );
                             if (ui.small_button("Tạo").clicked()
                                 || (resp.has_focus()
@@ -325,32 +325,66 @@ impl PentaKuru {
                     ui.add_space(4.0);
 
                     let folders_snapshot = self.notes_mgr.folders.clone();
-                    let query = self.notes_mgr.search_query.trim().to_lowercase();
+                    let query = system::fold(self.notes_mgr.search_query.trim());
                     let mut folder_to_toggle_ai: Option<String> = None;
                     let mut folder_to_create_note: Option<String> = None;
                     let mut folder_to_toggle_expand: Option<String> = None;
+                    let mut folder_to_toggle_branch: Option<String> = None;
+                    let mut subfolder_parent: Option<String> = None;
                     let mut note_to_select: Option<(String, String)> = None;
                     let mut note_to_move: Option<(String, String)> = None;
                     let mut note_to_toggle_ai: Option<String> = None;
+                    // One pass over all notes instead of one per folder per frame.
+                    let by_folder: std::collections::HashMap<String, Vec<(String, String, bool)>> =
+                        self.notes_mgr
+                            .notes_by_folder(&query)
+                            .into_iter()
+                            .map(|(folder, ids)| {
+                                let rows = ids
+                                    .into_iter()
+                                    .map(|i| {
+                                        let n = &self.notes_mgr.notes[i];
+                                        (n.id.clone(), n.title.clone(), n.ai_shared)
+                                    })
+                                    .collect();
+                                (folder.to_owned(), rows)
+                            })
+                            .collect();
 
                     egui::ScrollArea::vertical()
                         .id_salt("note-list-scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
+                            if !query.is_empty() && by_folder.is_empty() {
+                                theme::caption(ui, "Không có ghi chú khớp.");
+                            }
                             for folder in &folders_snapshot {
-                                let folder_notes: Vec<_> = self
-                                    .notes_mgr
-                                    .notes
-                                    .iter()
-                                    .filter(|n| {
-                                        n.folder == *folder
-                                            && (query.is_empty()
-                                                || n.title.to_lowercase().contains(&query)
-                                                || n.content.to_lowercase().contains(&query))
-                                    })
-                                    .map(|n| (n.id.clone(), n.title.clone(), n.ai_shared))
-                                    .collect();
+                                let folder_notes =
+                                    by_folder.get(folder).cloned().unwrap_or_default();
+                                // Searching shows a flat list of matching folders by full path.
+                                if !query.is_empty() && folder_notes.is_empty()
+                                    || query.is_empty()
+                                        && self.notes_mgr.is_hidden_by_parent(folder)
+                                {
+                                    continue;
+                                }
+                                let depth = if query.is_empty() {
+                                    folder.matches('/').count()
+                                } else {
+                                    0
+                                };
+                                let indent = depth as f32 * 12.0;
+                                let label = if query.is_empty() {
+                                    folder.rsplit('/').next().unwrap_or(folder)
+                                } else {
+                                    folder.as_str()
+                                };
+                                let child_prefix = format!("{folder}/");
+                                let has_children =
+                                    folders_snapshot.iter().any(|f| f.starts_with(&child_prefix));
+                                let collapsed = query.is_empty()
+                                    && self.notes_mgr.collapsed_folders.contains(folder);
 
                                 let is_selected_folder = &self.notes_mgr.selected_folder == folder;
                                 let is_folder_ai = self.notes_mgr.is_folder_ai_shared(folder);
@@ -358,10 +392,45 @@ impl PentaKuru {
                                     || !query.is_empty();
 
                                 ui.push_id(("folder-row", folder), |ui| {
-                                    ui.with_layout(
-                                        egui::Layout::left_to_right(egui::Align::Center),
+                                    ui.horizontal(
                                         |ui| {
                                             ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
+                                            ui.add_space(indent);
+                                            // Branch chevron: ▸ folded, ▾ open.
+                                            let (chev_rect, chev_resp) = ui.allocate_exact_size(
+                                                Vec2::new(10.0, 16.0),
+                                                Sense::click(),
+                                            );
+                                            if query.is_empty()
+                                                && (has_children || !folder_notes.is_empty())
+                                            {
+                                                let c = chev_rect.center();
+                                                let points = if collapsed {
+                                                    vec![
+                                                        c + Vec2::new(-2.0, -4.0),
+                                                        c + Vec2::new(3.0, 0.0),
+                                                        c + Vec2::new(-2.0, 4.0),
+                                                    ]
+                                                } else {
+                                                    vec![
+                                                        c + Vec2::new(-4.0, -2.0),
+                                                        c + Vec2::new(4.0, -2.0),
+                                                        c + Vec2::new(0.0, 3.0),
+                                                    ]
+                                                };
+                                                ui.painter().add(egui::Shape::convex_polygon(
+                                                    points,
+                                                    if chev_resp.hovered() {
+                                                        Color32::WHITE
+                                                    } else {
+                                                        theme::MUTED
+                                                    },
+                                                    Stroke::NONE,
+                                                ));
+                                                if chev_resp.clicked() {
+                                                    folder_to_toggle_branch = Some(folder.clone());
+                                                }
+                                            }
                                             let (icon_rect, icon_resp) = ui.allocate_exact_size(
                                                 Vec2::splat(16.0),
                                                 Sense::click(),
@@ -388,7 +457,16 @@ impl PentaKuru {
                                                     |ui| {
                                                         ui.add(
                                                             egui::Label::new(
-                                                                egui::RichText::new(folder)
+                                                                egui::RichText::new(
+                                                                    if folder_notes.is_empty() {
+                                                                        label.to_owned()
+                                                                    } else {
+                                                                        format!(
+                                                                            "{label}  {}",
+                                                                            folder_notes.len()
+                                                                        )
+                                                                    },
+                                                                )
                                                                     .size(12.5)
                                                                     .color(if is_selected_folder {
                                                                         Color32::WHITE
@@ -404,7 +482,25 @@ impl PentaKuru {
                                                 .inner;
                                             if icon_resp.clicked() || name_resp.clicked() {
                                                 self.notes_mgr.selected_folder = folder.clone();
+                                                self.notes_mgr.collapsed_folders.remove(folder);
                                             }
+                                            name_resp.context_menu(|ui| {
+                                                compact_menu(ui);
+                                                if ui.button("Tạo thư mục con").clicked() {
+                                                    subfolder_parent = Some(folder.clone());
+                                                    ui.close();
+                                                }
+                                                if ui.button("Mở thư mục trên máy").clicked() {
+                                                    let _ = system::open(
+                                                        &self
+                                                            .notes_mgr
+                                                            .root_dir
+                                                            .join(folder)
+                                                            .to_string_lossy(),
+                                                    );
+                                                    ui.close();
+                                                }
+                                            });
                                             ui.with_layout(
                                                 egui::Layout::right_to_left(egui::Align::Center),
                                                 |ui| {
@@ -445,14 +541,20 @@ impl PentaKuru {
                                     );
 
                                     let total_notes = folder_notes.len();
-                                    let visible_limit = if is_expanded { total_notes } else { 6 };
+                                    let visible_limit = if collapsed {
+                                        0
+                                    } else if is_expanded {
+                                        total_notes
+                                    } else {
+                                        6
+                                    };
                                     for (note_id, note_title, note_ai) in
                                         folder_notes.into_iter().take(visible_limit)
                                     {
                                         let selected = self.notes_mgr.selected_note_id.as_ref()
                                             == Some(&note_id);
                                         ui.horizontal(|ui| {
-                                            ui.add_space(10.0);
+                                            ui.add_space(10.0 + indent);
                                             let row_w = ui.available_width();
                                             let (rect, resp) = ui.allocate_exact_size(
                                                 Vec2::new(row_w, 26.0),
@@ -547,9 +649,9 @@ impl PentaKuru {
                                         });
                                     }
 
-                                    if total_notes > 6 && query.is_empty() {
+                                    if total_notes > 6 && query.is_empty() && !collapsed {
                                         ui.horizontal(|ui| {
-                                            ui.add_space(18.0);
+                                            ui.add_space(18.0 + indent);
                                             let see_label = if is_expanded {
                                                 "Thu gọn".to_owned()
                                             } else {
@@ -570,11 +672,20 @@ impl PentaKuru {
                                             }
                                         });
                                     }
-                                    ui.add_space(6.0);
+                                    ui.add_space(if collapsed { 2.0 } else { 6.0 });
                                 });
                             }
                         });
 
+                    if let Some(f) = folder_to_toggle_branch
+                        && !self.notes_mgr.collapsed_folders.remove(&f)
+                    {
+                        self.notes_mgr.collapsed_folders.insert(f);
+                    }
+                    if let Some(parent) = subfolder_parent {
+                        self.new_folder_input = format!("{parent}/");
+                        self.folder_form = true;
+                    }
                     if let Some(f) = folder_to_toggle_ai {
                         let enabled = self.notes_mgr.toggle_folder_ai(&f);
                         self.workspace.status = if enabled {
@@ -627,12 +738,12 @@ impl PentaKuru {
                     .as_ref()
                     .and_then(|id| self.notes_mgr.notes.iter().position(|n| &n.id == id));
 
-                // Tất cả chức năng trên MỘT HÀNG DUY NHẤT dưới dạng các Icon mini
+                // Thanh icon mini: một hàng, tự xuống dòng khi cửa sổ hẹp để không bị cắt mất nút
                 let mut trigger_format: Option<&'static str> = None;
                 let mut trigger_sync_kanban = false;
                 let mut trigger_pick_files = false;
 
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(2.5, 2.0);
                     if theme::mini_icon(
                         ui,

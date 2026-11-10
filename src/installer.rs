@@ -3,8 +3,9 @@ use crate::{Icon, Preferences, dock};
 use serde::Deserialize;
 use std::path::Path;
 
+// Unknown keys from older installers (e.g. retired utilities) are ignored; every
+// current key is still required.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Options {
     schema: u32,
     installation_id: String,
@@ -18,8 +19,6 @@ struct Options {
     calc: bool,
     music: bool,
     clip: bool,
-    #[serde(default, rename = "deeptutor")]
-    _legacy_tutor: bool,
 }
 
 fn apply(path: &Path, prefs: &mut Preferences) -> Result<bool, String> {
@@ -102,7 +101,7 @@ mod tests {
     #[test]
     fn setup_selection_applies_once_and_preserves_accounts() {
         let path = std::env::temp_dir().join(format!("penta-setup-{}.json", std::process::id()));
-        std::fs::write(&path, r#"{"schema":1,"installation_id":"test-install","notes":false,"search":true,"spell":false,"sally":false,"ui_tars":false,"writer":true,"impress":false,"calc":false,"music":true,"clip":false,"deeptutor":false}"#).unwrap();
+        std::fs::write(&path, r#"{"schema":1,"installation_id":"test-install","notes":false,"search":true,"spell":false,"sally":false,"ui_tars":false,"writer":true,"impress":false,"calc":false,"music":true,"clip":false}"#).unwrap();
         let mut prefs = Preferences {
             note: "existing note".into(),
             ..Preferences::default()
@@ -118,13 +117,15 @@ mod tests {
     }
 
     #[test]
-    fn legacy_install_ignores_removed_tutor_and_preserves_dock_choices() {
+    fn legacy_manifest_with_removed_utility_still_applies_and_preserves_dock_choices() {
         let path =
             std::env::temp_dir().join(format!("penta-setup-dock-{}.json", std::process::id()));
-        std::fs::write(&path, r#"{"schema":1,"installation_id":"tutor-spell-install","notes":true,"search":true,"spell":true,"sally":true,"ui_tars":false,"writer":false,"impress":false,"calc":false,"music":true,"clip":true,"deeptutor":true}"#).unwrap();
+        std::fs::write(&path, r#"{"schema":1,"installation_id":"legacy-spell-install","notes":true,"search":true,"spell":true,"sally":true,"ui_tars":false,"writer":false,"impress":false,"calc":false,"music":true,"clip":true,"deeptutor":true}"#).unwrap();
         let mut prefs = Preferences::default();
         assert!(apply(&path, &mut prefs).unwrap());
-        assert!(!prefs.dock_icons.contains(&Icon::RetiredTutor));
+        assert!(!prefs.dock_icons.contains(&Icon::Retired));
+        let old: Vec<Icon> = serde_json::from_str(r#"["Note","Tutor","Ai"]"#).unwrap();
+        assert_eq!(old, vec![Icon::Note, Icon::Retired, Icon::Ai]);
         assert!(prefs.dock_icons.contains(&Icon::Spell));
         assert_eq!(prefs.dock_icons.len(), 5);
         prefs.dock_icons = vec![Icon::Ai];

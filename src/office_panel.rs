@@ -438,7 +438,7 @@ impl PentaKuru {
             {
                 theme::caption(ui, &self.office.status);
             }
-            let query = self.office.query.trim().to_lowercase();
+            let query = system::fold(self.office.query.trim());
             let mut files: Vec<_> = self
                 .office
                 .files
@@ -446,9 +446,11 @@ impl PentaKuru {
                 .filter(|f| {
                     self.office.filter.is_none_or(|k| k == f.kind)
                         && (self.office.label.is_empty() || f.labels.contains(&self.office.label))
-                        && format!("{} {} {}", f.name, f.path.display(), f.labels.join(" "))
-                            .to_lowercase()
-                            .contains(&query)
+                        && (query.is_empty()
+                            || system::matches_terms(
+                                &format!("{} {} {}", f.name, f.path.display(), f.labels.join(" ")),
+                                &query,
+                            ))
                 })
                 .cloned()
                 .collect();
@@ -688,15 +690,32 @@ impl PentaKuru {
                 {
                     theme::caption(ui, &self.office.status);
                 }
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.office.prompt)
-                            .font(egui::FontId::proportional(14.0))
-                            .hint_text("Nhắn yêu cầu chỉnh tài liệu…")
-                            .desired_rows(1)
-                            .desired_width((ui.available_width() - 38.0).max(100.0))
-                            .frame(egui::Frame::NONE),
-                    );
+                // The prompt takes the height left above the icon row + caption (and the
+                // custom-request row), so the composer fills the window without clipping them.
+                let prompt_height = (ui.available_height()
+                    - 60.0
+                    - if self.office.operation == 3 {
+                        34.0
+                    } else {
+                        0.0
+                    })
+                .max(24.0);
+                ui.horizontal_top(|ui| {
+                    let width = (ui.available_width() - 38.0).max(100.0);
+                    egui::ScrollArea::vertical()
+                        .id_salt("office-prompt")
+                        .max_height(prompt_height)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.office.prompt)
+                                    .font(egui::FontId::proportional(14.0))
+                                    .hint_text("Nhắn yêu cầu chỉnh tài liệu…")
+                                    .desired_rows(1)
+                                    .desired_width(width)
+                                    .min_size(egui::vec2(width, prompt_height))
+                                    .frame(egui::Frame::NONE),
+                            );
+                        });
                     if office_icon(
                         ui,
                         theme::Glyph::Arrow,
@@ -709,7 +728,7 @@ impl PentaKuru {
                         action = Some(self.office.operation);
                     }
                 });
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.horizontal(|ui| {
                     for (kind, glyph) in [
                         (office::Kind::Word, theme::Glyph::Word),
                         (office::Kind::Excel, theme::Glyph::Excel),
