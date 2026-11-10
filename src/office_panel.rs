@@ -438,7 +438,7 @@ impl PentaKuru {
             {
                 theme::caption(ui, &self.office.status);
             }
-            let query = self.office.query.trim().to_lowercase();
+            let query = system::fold(self.office.query.trim());
             let mut files: Vec<_> = self
                 .office
                 .files
@@ -446,9 +446,11 @@ impl PentaKuru {
                 .filter(|f| {
                     self.office.filter.is_none_or(|k| k == f.kind)
                         && (self.office.label.is_empty() || f.labels.contains(&self.office.label))
-                        && format!("{} {} {}", f.name, f.path.display(), f.labels.join(" "))
-                            .to_lowercase()
-                            .contains(&query)
+                        && (query.is_empty()
+                            || system::matches_terms(
+                                &format!("{} {} {}", f.name, f.path.display(), f.labels.join(" ")),
+                                &query,
+                            ))
                 })
                 .cloned()
                 .collect();

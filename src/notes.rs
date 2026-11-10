@@ -93,6 +93,38 @@ pub struct NotesManager {
     pub status_message: Option<String>,
     pub ai_folders: std::collections::HashSet<String>,
     pub expanded_folders: std::collections::HashSet<String>,
+    /// Folder branches the user folded shut in the tree sidebar.
+    pub collapsed_folders: std::collections::HashSet<String>,
+}
+
+/// Runtime folders that live beside notes but never hold user notes
+/// (`DeepTutor` is a leftover from the removed tutor runtime on older PCs).
+const RESERVED_FOLDERS: [&str; 4] = ["DeepTutor", "Office", "Sally", "integrations"];
+const MAX_FOLDER_DEPTH: usize = 6;
+
+/// Normalise a user/AI supplied folder into `A/B` form, refusing anything that
+/// could escape the notes root (`..`, absolute paths, hidden names).
+pub fn clean_folder(name: &str) -> Option<String> {
+    let parts: Vec<&str> = name
+        .split(['/', '\\'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.is_empty()
+        || parts.len() > MAX_FOLDER_DEPTH
+        || name == "Tất cả"
+        || parts
+            .iter()
+            .any(|part| part.starts_with('.') || part.contains(':'))
+    {
+        return None;
+    }
+    Some(parts.join("/"))
+}
+
+/// Order folders so each branch is followed directly by its children.
+fn sort_tree(folders: &mut [String]) {
+    folders.sort_by(|a, b| a.to_lowercase().split('/').cmp(b.to_lowercase().split('/')));
 }
 
 impl Default for NotesManager {
@@ -113,6 +145,7 @@ impl NotesManager {
             status_message: None,
             ai_folders: std::collections::HashSet::new(),
             expanded_folders: std::collections::HashSet::new(),
+            collapsed_folders: std::collections::HashSet::new(),
         };
         mgr.init_filesystem();
         mgr.reload();
@@ -216,25 +249,89 @@ impl NotesManager {
             let _ = fs::create_dir_all(&f_path);
         }
 
-        // Quét thêm các thư mục con có sẵn trong root_dir
-        if let Ok(entries) = fs::read_dir(&self.root_dir) {
-            for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type()
-                    && file_type.is_dir()
-                {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if !name.starts_with('.')
-                        && !["DeepTutor", "Office", "Sally", "integrations"]
-                            .iter()
-                            .any(|reserved| name.eq_ignore_ascii_case(reserved))
-                        && !self.folders.contains(&name)
-                    {
-                        self.folders.push(name);
-                    }
-                }
+        // Quét cây thư mục (kể cả thư mục con) có sẵn trong root_dir
+        let mut found = Vec::new();
+        Self::scan_folders(&self.root_dir, "", &mut found);
+        for name in found {
+            if !self.folders.contains(&name) {
+                self.folders.push(name);
             }
         }
-        self.folders.sort();
+        sort_tree(&mut self.folders);
+    }
+
+    fn scan_folders(dir: &Path, prefix: &str, out: &mut Vec<String>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            // `<id>_files` holds a note's attachments, not a sub-folder of notes.
+            if name.starts_with('.')
+                || name.ends_with("_files")
+                || (prefix.is_empty()
+                    && RESERVED_FOLDERS
+                        .iter()
+                        .any(|reserved| name.eq_ignore_ascii_case(reserved)))
+            {
+                continue;
+            }
+            let rel = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if rel.matches('/').count() + 1 < MAX_FOLDER_DEPTH {
+                Self::scan_folders(&entry.path(), &rel, out);
+            }
+            out.push(rel);
+        }
+    }
+
+    /// Create `folder` on disk and register it plus every parent branch.
+    fn ensure_folder(&mut self, folder: &str) {
+        let _ = fs::create_dir_all(self.root_dir.join(folder));
+        let mut branch = String::new();
+        for part in folder.split('/') {
+            if !branch.is_empty() {
+                branch.push('/');
+            }
+            branch.push_str(part);
+            if !self.folders.contains(&branch) {
+                self.folders.push(branch.clone());
+            }
+        }
+        sort_tree(&mut self.folders);
+    }
+
+    /// Note indexes per folder that match an already folded query, in one pass.
+    pub fn notes_by_folder(
+        &self,
+        folded_query: &str,
+    ) -> std::collections::HashMap<&str, Vec<usize>> {
+        let mut map: std::collections::HashMap<&str, Vec<usize>> = Default::default();
+        // shortcut: folds every note per call (fine for hundreds of notes); cache per query if libraries grow to thousands.
+        for (index, note) in self.notes.iter().enumerate() {
+            if folded_query.is_empty()
+                || crate::system::matches_terms(
+                    &format!("{}\n{}", note.title, note.content),
+                    folded_query,
+                )
+            {
+                map.entry(note.folder.as_str()).or_default().push(index);
+            }
+        }
+        map
+    }
+
+    /// True when a parent branch of `folder` is folded shut.
+    pub fn is_hidden_by_parent(&self, folder: &str) -> bool {
+        folder
+            .match_indices('/')
+            .any(|(at, _)| self.collapsed_folders.contains(&folder[..at]))
     }
 
     /// Tải lại danh sách ghi chú từ ổ đĩa
@@ -385,17 +482,8 @@ impl NotesManager {
             content.to_string()
         };
 
-        let folder = if folder_name == "Tất cả" || folder_name.trim().is_empty() {
-            "Chung".to_owned()
-        } else {
-            folder_name.trim().to_owned()
-        };
-        let folder_dir = self.root_dir.join(&folder);
-        let _ = fs::create_dir_all(&folder_dir);
-        if !self.folders.contains(&folder) {
-            self.folders.push(folder.clone());
-            self.folders.sort();
-        }
+        let folder = clean_folder(folder_name).unwrap_or_else(|| "Chung".to_owned());
+        self.ensure_folder(&folder);
         self.selected_folder = folder.clone();
         let ai_shared = self.ai_folders.contains(&folder);
 
@@ -496,14 +584,14 @@ impl NotesManager {
     }
 
     /// Thêm một thư mục mới
+    /// Accepts `A/B` to create a sub-folder (and its missing parents).
     pub fn add_folder(&mut self, folder_name: &str) {
-        let name = folder_name.trim();
-        if !name.is_empty() && !self.folders.contains(&name.to_string()) {
-            let p = self.root_dir.join(name);
-            let _ = fs::create_dir_all(&p);
-            self.folders.push(name.to_string());
-            self.folders.sort();
-            self.selected_folder = name.to_string();
+        if let Some(name) = clean_folder(folder_name) {
+            self.ensure_folder(&name);
+            if let Some(at) = name.rfind('/') {
+                self.collapsed_folders.remove(&name[..at]);
+            }
+            self.selected_folder = name;
         }
     }
 
@@ -526,10 +614,11 @@ impl NotesManager {
 
     /// Di chuyển ghi chú sang thư mục khác
     pub fn move_selected_note_to_folder(&mut self, target_folder: &str) {
-        let target = target_folder.trim();
-        if target.is_empty() {
+        let Some(target) = clean_folder(target_folder) else {
             return;
-        }
+        };
+        let target = target.as_str();
+        self.ensure_folder(target);
         if let Some(id) = &self.selected_note_id
             && let Some(pos) = self.notes.iter().position(|n| &n.id == id)
         {
@@ -710,7 +799,7 @@ mod tests {
     #[test]
     fn runtime_and_json_files_are_not_notes() {
         let mut manager = fixture();
-        for folder in ["DeepTutor", "Office", "Sally", "integrations"] {
+        for folder in RESERVED_FOLDERS {
             fs::create_dir_all(manager.root_dir.join(folder)).unwrap();
             fs::write(manager.root_dir.join(folder).join("README.md"), "runtime").unwrap();
             fs::write(
@@ -729,8 +818,7 @@ mod tests {
             !manager
                 .folders
                 .iter()
-                .any(|name| ["DeepTutor", "Office", "Sally", "integrations"]
-                    .contains(&name.as_str()))
+                .any(|name| RESERVED_FOLDERS.contains(&name.as_str()))
         );
         assert!(
             !manager
@@ -902,5 +990,28 @@ mod tests {
         let note = manager.notes.iter().find(|n| n.id == id).unwrap();
         assert_eq!(note.folder, "salto_AI");
         assert!(note.ai_shared);
+    }
+
+    #[test]
+    fn folder_tree_is_nested_safe_and_searchable_without_accents() {
+        assert_eq!(clean_folder(" Dự án \\ ERP/ "), Some("Dự án/ERP".into()));
+        assert_eq!(clean_folder("../ngoai"), None);
+        assert_eq!(clean_folder("C:/Windows"), None);
+        let mut manager = fixture();
+        let id = manager.create_note_in_folder("Dự án/ERP", "Giáo án", "# Giáo án\n\nKế hoạch");
+        manager.selected_note_id = Some(id.clone());
+        manager.upload_files_to_selected(&[PathBuf::from("Cargo.toml")]);
+        manager.create_note_in_folder("../thoat", "x", "x");
+        assert!(!manager.root_dir.parent().unwrap().join("thoat").exists());
+        manager = NotesManager::at(manager.root_dir);
+        let tree: Vec<_> = manager.folders.iter().map(String::as_str).collect();
+        let parent = tree.iter().position(|f| *f == "Dự án").unwrap();
+        assert_eq!(tree[parent + 1], "Dự án/ERP");
+        assert!(!tree.iter().any(|f| f.ends_with("_files")));
+        let hits = manager.notes_by_folder(&crate::system::fold("giao an ke hoach"));
+        assert_eq!(hits.get("Dự án/ERP").map(Vec::len), Some(1));
+        manager.collapsed_folders.insert("Dự án".into());
+        assert!(manager.is_hidden_by_parent("Dự án/ERP"));
+        assert!(!manager.is_hidden_by_parent("Dự án"));
     }
 }

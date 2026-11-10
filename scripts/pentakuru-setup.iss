@@ -123,9 +123,11 @@ Name: "desktopicon"; Description: "Tạo biểu tượng trên Desktop"; Flags: 
 
 [Files]
 Source: "{#Root}\scripts\install-office.ps1"; Flags: dontcopy
-Source: "{#Root}\dist\prerequisites\vc_redist.x64.exe"; Flags: dontcopy
-Source: "{#Root}\dist\prerequisites\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: dontcopy
-Source: "{#Root}\dist\prerequisites\LibreOffice-26.8.1.msi"; Flags: dontcopy
+; Already-compressed payloads are stored raw in their own chunks: the build is faster and
+; installing PentaKuru no longer decompresses ~600 MB of runtimes it may never use.
+Source: "{#Root}\dist\prerequisites\vc_redist.x64.exe"; Flags: dontcopy nocompression
+Source: "{#Root}\dist\prerequisites\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: dontcopy nocompression
+Source: "{#Root}\dist\prerequisites\LibreOffice-26.8.1.msi"; Flags: dontcopy nocompression
 Source: "{#Root}\target\release\pentakuru.exe"; DestDir: "{app}"; DestName: "PentaKuru.exe"; Flags: ignoreversion; Components: core
 Source: "{#Root}\LICENSE"; DestDir: "{app}"; Components: core
 Source: "{#Root}\LICENSE-PENTEYE-MIT"; DestDir: "{app}"; Components: core
@@ -140,6 +142,19 @@ Type: files; Name: "{app}\PentaEye.exe"
 Type: files; Name: "{app}\scripts\install-deeptutor.ps1"
 Type: files; Name: "{app}\docs\DEEPTUTOR-ONECLICK.md"
 Type: filesandordirs; Name: "{app}\prerequisites\DeepTutor"
+; Retired tutor runtime beside notes: remove only its known runtime files, keep anything else.
+Type: filesandordirs; Name: "{app}\Penteye Notes\DeepTutor\engines"
+Type: filesandordirs; Name: "{app}\Penteye Notes\DeepTutor\runtime"
+Type: filesandordirs; Name: "{app}\Penteye Notes\DeepTutor\downloads"
+Type: files; Name: "{app}\Penteye Notes\DeepTutor\install*"
+Type: files; Name: "{app}\Penteye Notes\DeepTutor\runtime-*"
+Type: dirifempty; Name: "{app}\Penteye Notes\DeepTutor"
+Type: filesandordirs; Name: "{userdocs}\Penteye Notes\DeepTutor\engines"
+Type: filesandordirs; Name: "{userdocs}\Penteye Notes\DeepTutor\runtime"
+Type: filesandordirs; Name: "{userdocs}\Penteye Notes\DeepTutor\downloads"
+Type: files; Name: "{userdocs}\Penteye Notes\DeepTutor\install*"
+Type: files; Name: "{userdocs}\Penteye Notes\DeepTutor\runtime-*"
+Type: dirifempty; Name: "{userdocs}\Penteye Notes\DeepTutor"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Penteye"; ValueData: """{app}\PentaKuru.exe"""; Flags: uninsdeletevalue; Check: LegacyAutostartEnabled

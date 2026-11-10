@@ -28,7 +28,7 @@ impl Icon {
             Self::Office => "Office",
             Self::Music => "Penta Music",
             Self::Video => "Penta Video",
-            Self::RetiredTutor => "",
+            Self::Retired => "",
             Self::UiTars => "UI-TARS",
             Self::Settings => "Cài đặt",
         }
@@ -44,7 +44,7 @@ impl Icon {
             Self::Office => p.utilities.enable_office,
             Self::Music => p.integrations.music,
             Self::Video => p.integrations.clip,
-            Self::RetiredTutor => false,
+            Self::Retired => false,
             Self::UiTars => false,
             Self::Settings => true,
         }
@@ -53,7 +53,7 @@ impl Icon {
 pub fn normalize(items: &mut Vec<Icon>) {
     let mut seen = Vec::new();
     items.retain(|i| {
-        if matches!(*i, Icon::UiTars | Icon::RetiredTutor) || seen.contains(i) || seen.len() == 5 {
+        if matches!(*i, Icon::UiTars | Icon::Retired) || seen.contains(i) || seen.len() == 5 {
             false
         } else {
             seen.push(*i);
@@ -122,7 +122,7 @@ impl PentaKuru {
                     self.integrations.status = e;
                 }
             }
-            Icon::RetiredTutor => {}
+            Icon::Retired => {}
             Icon::UiTars => {
                 let already_open = self.ai_open && self.ai_mode == AiMode::UiTars;
                 self.ai_mode = AiMode::UiTars;
