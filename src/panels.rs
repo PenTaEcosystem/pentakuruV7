@@ -738,12 +738,12 @@ impl PentaKuru {
                     .as_ref()
                     .and_then(|id| self.notes_mgr.notes.iter().position(|n| &n.id == id));
 
-                // Tất cả chức năng trên MỘT HÀNG DUY NHẤT dưới dạng các Icon mini
+                // Thanh icon mini: một hàng, tự xuống dòng khi cửa sổ hẹp để không bị cắt mất nút
                 let mut trigger_format: Option<&'static str> = None;
                 let mut trigger_sync_kanban = false;
                 let mut trigger_pick_files = false;
 
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(2.5, 2.0);
                     if theme::mini_icon(
                         ui,
