@@ -1,10 +1,11 @@
-use crate::{AiMode, Icon, PentaKuru, Preferences, hotkeys, integrations, sally};
+use crate::{Icon, PentaKuru, Preferences, hotkeys, integrations, sally};
 use eframe::egui::{self, Vec2};
 
 pub fn defaults() -> Vec<Icon> {
     vec![Icon::Note, Icon::Search, Icon::Ai, Icon::Translate]
 }
 impl Icon {
+    #[cfg(feature = "office")]
     pub const ALL: [Self; 10] = [
         Self::Note,
         Self::Search,
@@ -17,6 +18,18 @@ impl Icon {
         Self::Video,
         Self::Settings,
     ];
+    #[cfg(not(feature = "office"))]
+    pub const ALL: [Self; 9] = [
+        Self::Note,
+        Self::Search,
+        Self::Ai,
+        Self::Translate,
+        Self::Spell,
+        Self::Motion,
+        Self::Music,
+        Self::Video,
+        Self::Settings,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Note => "Ghi chú",
@@ -25,11 +38,11 @@ impl Icon {
             Self::Translate => "Sally",
             Self::Spell => "Sửa chính tả",
             Self::Motion => "Xoay / dừng mô hình",
+            #[cfg(feature = "office")]
             Self::Office => "Office",
             Self::Music => "Penta Music",
             Self::Video => "Penta Video",
             Self::Retired => "",
-            Self::UiTars => "UI-TARS",
             Self::Settings => "Cài đặt",
         }
     }
@@ -41,11 +54,11 @@ impl Icon {
             Self::Translate => p.utilities.enable_sally,
             Self::Spell => p.utilities.enable_spell,
             Self::Motion => p.utilities.enable_motion,
+            #[cfg(feature = "office")]
             Self::Office => p.utilities.enable_office,
             Self::Music => p.integrations.music,
             Self::Video => p.integrations.clip,
             Self::Retired => false,
-            Self::UiTars => false,
             Self::Settings => true,
         }
     }
@@ -53,7 +66,7 @@ impl Icon {
 pub fn normalize(items: &mut Vec<Icon>) {
     let mut seen = Vec::new();
     items.retain(|i| {
-        if matches!(*i, Icon::UiTars | Icon::Retired) || seen.contains(i) || seen.len() == 5 {
+        if matches!(*i, Icon::Retired) || seen.contains(i) || seen.len() == 5 {
             false
         } else {
             seen.push(*i);
@@ -93,11 +106,10 @@ impl PentaKuru {
                 }
             }
             Icon::Ai => {
-                let already_open = self.ai_open && self.ai_mode == AiMode::Chat;
-                self.ai_mode = AiMode::Chat;
-                self.ai_open = !already_open;
+                self.ai_open = !self.ai_open;
                 if self.ai_open {
                     self.search_open = false;
+                    self.ai_bubble_dismissed = false;
                     self.ai_focus = 10;
                 }
             }
@@ -111,6 +123,7 @@ impl PentaKuru {
             }
             Icon::Motion => self.moving = !self.moving,
             Icon::Spell => self.handle_action(hotkeys::Action::FixText, 0, ctx),
+            #[cfg(feature = "office")]
             Icon::Office => self.office_open = true,
             Icon::Music => {
                 if let Err(e) = integrations::music_open() {
@@ -123,12 +136,6 @@ impl PentaKuru {
                 }
             }
             Icon::Retired => {}
-            Icon::UiTars => {
-                let already_open = self.ai_open && self.ai_mode == AiMode::UiTars;
-                self.ai_mode = AiMode::UiTars;
-                self.ai_open = !already_open;
-                self.ai_focus = 10;
-            }
             Icon::Settings => self.settings_open = true,
         }
         self.last_activity = std::time::Instant::now();
@@ -194,15 +201,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_ui_tars_icon_is_removed_without_disabling_agent() {
-        let mut icons = vec![Icon::UiTars, Icon::Ai, Icon::Note];
+    fn retired_icons_including_legacy_ui_tars_are_removed() {
+        let mut icons: Vec<Icon> = serde_json::from_str(r#"["UiTars","Ai","Note"]"#).unwrap();
+        assert_eq!(icons[0], Icon::Retired);
         normalize(&mut icons);
         assert_eq!(icons, vec![Icon::Ai, Icon::Note]);
-        assert!(!Icon::ALL.contains(&Icon::UiTars));
-        let mut preferences = Preferences::default();
-        preferences.utilities.enable_ui_tars = true;
-        assert!(!Icon::UiTars.enabled(&preferences));
-        assert!(preferences.utilities.enable_ui_tars);
+        assert!(!Icon::ALL.contains(&Icon::Retired));
     }
     #[test]
     fn optional_icons_are_unique_and_capped() {

@@ -82,7 +82,6 @@ impl PentaKuru {
             self.search_state.update_search();
             let height = search_height(&self.search_state.query, self.search_state.results.len());
             let position = calc_pos(540.0, height);
-            system::apply_window_dark_and_transparency("PentaKuru · Tìm kiếm");
             let mut open = true;
             ctx.show_viewport_immediate(
                 ViewportId::from_hash_of("search_dock"),
@@ -94,9 +93,10 @@ impl PentaKuru {
                     .with_decorations(false)
                     .with_transparent(true)
                     .with_always_on_top()
+                    .with_taskbar(false)
                     .with_active(!self.smoke_test),
                 |viewport_ui, _| {
-                    system::apply_window_dark_and_transparency("PentaKuru · Tìm kiếm");
+                    system::apply_tool_window("PentaKuru · Tìm kiếm");
                     open = self.search_ui(viewport_ui);
                 },
             );
@@ -105,26 +105,21 @@ impl PentaKuru {
                 self.search_focus = 10;
             }
         }
+        let mut ai_bottom_edge = root_rect.max.y;
         if self.ai_open {
-            let has_content =
-                !self.ai_history.is_empty() || self.ai_job.is_some() || self.ui_agent.is_active;
-
-            let width = 540.0_f32.min((screen_rect.width() - 24.0).max(240.0));
-            let lines = prompt_rows(&self.ai_prompt, (width - 136.0).max(1.0));
-            let height = (if !has_content && self.ai_status.is_some() {
-                160.0_f32
-            } else {
-                ai_height(has_content, lines)
-                    + if !has_content && self.notes_mgr.notes.iter().any(|note| note.ai_shared) {
-                        24.0
-                    } else {
-                        0.0
-                    }
-            })
-            .max(if self.ai_menu_open { 220.0 } else { 0.0 })
-            .min((screen_rect.height() - 64.0).max(160.0));
+            let expanded = self.ai_history_expanded;
+            let width = if expanded { 540.0_f32 } else { 480.0_f32 }
+                .min((screen_rect.width() - 24.0).max(240.0));
+            let lines = prompt_rows(&self.ai_prompt, (width - 104.0).max(1.0));
+            let has_strip = !expanded
+                && (self.notes_mgr.notes.iter().any(|note| note.ai_shared)
+                    || !self.ai_attached_files.is_empty()
+                    || crate::ai::note_command(&self.ai_prompt).is_some());
+            let height = (ai_height(expanded, lines) + if has_strip { 20.0 } else { 0.0 })
+                .max(if self.ai_menu_open { 240.0 } else { 0.0 })
+                .min((screen_rect.height() - 64.0).max(160.0));
             let position = calc_pos(width, height);
-            system::apply_window_dark_and_transparency("PentaKuru · AI");
+            ai_bottom_edge = position[1] + height;
             let mut open = true;
             ctx.show_viewport_immediate(
                 ViewportId::from_hash_of("ai_dock"),
@@ -136,19 +131,825 @@ impl PentaKuru {
                     .with_decorations(false)
                     .with_transparent(true)
                     .with_always_on_top()
+                    .with_taskbar(false)
                     .with_active(!self.smoke_test),
                 |viewport_ui, _| {
+                    system::apply_tool_window("PentaKuru · AI");
                     open = self.ai_ui(viewport_ui);
                 },
             );
             self.ai_open = open;
-            if self.ui_agent.is_active {
-                ctx.request_repaint_after(std::time::Duration::from_millis(100));
-            }
             if !open {
                 self.ai_focus = 10;
             }
         }
+        if self.ai_reply_bubble_visible() {
+            let bubble_w = 420.0_f32.min((screen_rect.width() - 24.0).max(240.0));
+            let bubble_h = self
+                .ai_bubble_height
+                .clamp(60.0, 180.0)
+                .max(if self.ai_bubble_menu_open { 220.0 } else { 0.0 });
+            let bubble_x = (root_rect.center().x - bubble_w * 0.5).clamp(
+                screen_rect.min.x + 12.0,
+                (screen_rect.max.x - bubble_w - 12.0).max(12.0),
+            );
+            let y_above = root_rect.min.y - bubble_h - 8.0;
+            let bubble_y = if y_above >= screen_rect.min.y + 8.0 {
+                y_above
+            } else {
+                (ai_bottom_edge + 8.0).min((screen_rect.max.y - bubble_h - 12.0).max(12.0))
+            };
+            ctx.show_viewport_immediate(
+                ViewportId::from_hash_of("ai_reply_bubble"),
+                egui::ViewportBuilder::default()
+                    .with_title("PentaKuru · Trả lời AI")
+                    .with_position([bubble_x, bubble_y])
+                    .with_inner_size([bubble_w, bubble_h])
+                    .with_resizable(false)
+                    .with_decorations(false)
+                    .with_transparent(true)
+                    .with_always_on_top()
+                    .with_taskbar(false)
+                    .with_active(false),
+                |viewport_ui, _| {
+                    system::apply_tool_window("PentaKuru · Trả lời AI");
+                    self.ai_reply_bubble_ui(viewport_ui);
+                },
+            );
+        }
+        self.mini_music_window(ctx, screen_rect);
+    }
+
+    pub(super) fn mini_music_window(&mut self, ctx: &egui::Context, screen_rect: Rect) {
+        if !self.mini_music.open {
+            return;
+        }
+        const MINI_DISC_SIZE: f32 = 64.0;
+        const AUTO_COLLAPSE: std::time::Duration = std::time::Duration::from_secs(5);
+        let card_w = 368.0_f32.min((screen_rect.width() - 24.0).max(260.0));
+        let card_h = if self.mini_music.queue_open {
+            268.0
+        } else {
+            122.0
+        };
+
+        if !self.smoke_test
+            && !self.mini_music.collapsed_disc
+            && !self.mini_music.queue_open
+            && !self.mini_music.tracks.is_empty()
+        {
+            let elapsed = self.mini_music.last_interaction.elapsed();
+            if elapsed >= AUTO_COLLAPSE {
+                self.mini_music.collapsed_disc = true;
+            } else {
+                ctx.request_repaint_after(
+                    (AUTO_COLLAPSE - elapsed).max(std::time::Duration::from_millis(200)),
+                );
+            }
+        }
+
+        let default_base = [
+            (screen_rect.max.x - card_w - 20.0).max(screen_rect.min.x + 12.0),
+            (screen_rect.max.y - 122.0 - 56.0).max(screen_rect.min.y + 12.0),
+        ];
+        let base_pos = self.mini_music_pos.unwrap_or(default_base);
+        let (w, h, pos) = if self.mini_music.collapsed_disc {
+            let dx = (base_pos[0] + card_w - MINI_DISC_SIZE).clamp(
+                screen_rect.min.x + 8.0,
+                (screen_rect.max.x - MINI_DISC_SIZE - 8.0).max(8.0),
+            );
+            let dy = (base_pos[1] + 122.0 - MINI_DISC_SIZE).clamp(
+                screen_rect.min.y + 8.0,
+                (screen_rect.max.y - MINI_DISC_SIZE - 48.0).max(8.0),
+            );
+            (MINI_DISC_SIZE, MINI_DISC_SIZE, [dx, dy])
+        } else {
+            let expand_up = card_h - 122.0;
+            let px = base_pos[0].clamp(
+                screen_rect.min.x + 8.0,
+                (screen_rect.max.x - card_w - 8.0).max(8.0),
+            );
+            let py = (base_pos[1] - expand_up).clamp(
+                screen_rect.min.y + 8.0,
+                (screen_rect.max.y - card_h - 48.0).max(8.0),
+            );
+            (card_w, card_h, [px, py])
+        };
+        let mut open = true;
+        ctx.show_viewport_immediate(
+            ViewportId::from_hash_of("mini_music_player"),
+            egui::ViewportBuilder::default()
+                .with_title("PentaKuru · Mini Music")
+                .with_position(pos)
+                .with_inner_size([w, h])
+                .with_min_inner_size([MINI_DISC_SIZE, MINI_DISC_SIZE])
+                .with_resizable(false)
+                .with_decorations(false)
+                .with_transparent(true)
+                .with_always_on_top()
+                .with_taskbar(false)
+                .with_active(false),
+            |viewport_ui, _| {
+                system::apply_tool_window("PentaKuru · Mini Music");
+                if let Some(outer) = viewport_ui.ctx().input(|i| i.viewport().outer_rect) {
+                    if !self.mini_music.collapsed_disc
+                        && outer.width() > 200.0
+                        && (outer.height() - card_h).abs() < 6.0
+                    {
+                        self.mini_music_pos = Some([outer.min.x, outer.min.y + (card_h - 122.0)]);
+                    } else if self.mini_music.collapsed_disc
+                        && outer.width() <= 80.0
+                        && ((outer.min.x - pos[0]).abs() > 1.5
+                            || (outer.min.y - pos[1]).abs() > 1.5)
+                    {
+                        self.mini_music_pos = Some([
+                            outer.min.x + MINI_DISC_SIZE - card_w,
+                            outer.min.y + MINI_DISC_SIZE - 122.0,
+                        ]);
+                    }
+                }
+                open = self.mini_music_ui(viewport_ui);
+            },
+        );
+        if !open {
+            self.mini_music.close();
+        }
+    }
+
+    pub(super) fn mini_music_ui(&mut self, viewport_ui: &mut egui::Ui) -> bool {
+        let mut open = true;
+        let ctx = viewport_ui.ctx().clone();
+        if ctx.input(|i| i.viewport().close_requested()) {
+            open = false;
+        }
+        let had_activity = ctx.input(|i| {
+            i.pointer.any_down()
+                || i.pointer.any_released()
+                || i.pointer.delta() != Vec2::ZERO
+                || i.smooth_scroll_delta != Vec2::ZERO
+                || i.events.iter().any(|e| {
+                    matches!(
+                        e,
+                        egui::Event::PointerMoved(_)
+                            | egui::Event::PointerButton { .. }
+                            | egui::Event::Text(_)
+                            | egui::Event::Key { .. }
+                    )
+                })
+        });
+        if !self.mini_music.collapsed_disc && had_activity {
+            self.mini_music.touch();
+        }
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(viewport_ui, |ui| {
+                let open_inner = if self.mini_music.collapsed_disc {
+                    self.mini_music_disc_contents(ui)
+                } else {
+                    self.mini_music_contents(ui)
+                };
+                if !open_inner {
+                    open = false;
+                }
+            });
+        open
+    }
+
+    fn mini_music_disc_contents(&mut self, ui: &mut egui::Ui) -> bool {
+        let ctx = ui.ctx().clone();
+        let snap = self.mini_music.engine.snapshot();
+        let is_playing = matches!(
+            snap.state,
+            crate::mcp_media::PlaybackState::Playing | crate::mcp_media::PlaybackState::Opening
+        );
+        let track_opt = self.mini_music.current_track().cloned();
+        let emerald = Color32::from_rgb(16, 185, 129);
+        let emerald_bright = Color32::from_rgb(52, 211, 153);
+
+        let (rect, resp) = ui.allocate_exact_size(Vec2::splat(62.0), Sense::click_and_drag());
+        let center = rect.center();
+
+        // Dark vinyl outer body + grooves
+        {
+            let p = ui.painter();
+            p.circle_filled(center, 29.0, Color32::from_rgb(15, 18, 22));
+            p.circle_stroke(
+                center,
+                26.0,
+                Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18)),
+            );
+            p.circle_stroke(
+                center,
+                23.0,
+                Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 14)),
+            );
+        }
+
+        let tex = track_opt
+            .as_ref()
+            .and_then(|t| self.mini_music.thumbs.get(&t.video_id))
+            .and_then(|o| o.as_ref());
+        if let Some(tex) = tex {
+            let art_rect = Rect::from_center_size(center, Vec2::splat(42.0));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(art_rect), |ui| {
+                ui.add(
+                    egui::Image::new(tex)
+                        .fit_to_exact_size(Vec2::splat(42.0))
+                        .corner_radius(21.0),
+                );
+            });
+        } else {
+            let p = ui.painter();
+            p.circle_filled(center, 20.0, Color32::from_rgb(24, 32, 38));
+            p.text(
+                center + Vec2::new(-1.0, 0.0),
+                egui::Align2::CENTER_CENTER,
+                "♫",
+                egui::FontId::proportional(18.0),
+                emerald_bright,
+            );
+        }
+
+        let t = ui.input(|i| i.time as f32);
+        {
+            let p = ui.painter();
+            // Vinyl center spindle hole
+            p.circle_filled(center, 5.2, Color32::from_rgb(15, 18, 22));
+            p.circle_stroke(
+                center,
+                5.2,
+                Stroke::new(
+                    1.2,
+                    if is_playing {
+                        emerald_bright
+                    } else {
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 90)
+                    },
+                ),
+            );
+
+            // Outer border + animated spin marker & playback progress arc
+            p.circle_stroke(
+                center,
+                29.0,
+                Stroke::new(
+                    1.4,
+                    Color32::from_rgba_unmultiplied(
+                        255,
+                        255,
+                        255,
+                        if is_playing { 42 } else { 30 },
+                    ),
+                ),
+            );
+            if is_playing {
+                let angle = t * 1.8;
+                let notch = center + Vec2::new(angle.cos(), angle.sin()) * 24.5;
+                p.circle_filled(notch, 2.2, emerald_bright);
+            }
+            let frac = if snap.duration_secs > 0.5 {
+                (snap.position_secs / snap.duration_secs).clamp(0.0, 1.0) as f32
+            } else {
+                0.0
+            };
+            if frac > 0.02 || is_playing {
+                let sweep = if frac > 0.02 { frac } else { 0.32 } * std::f32::consts::TAU;
+                let start = if frac > 0.02 {
+                    -std::f32::consts::FRAC_PI_2
+                } else {
+                    t * 1.8
+                };
+                let steps = 28;
+                let pts: Vec<Pos2> = (0..=steps)
+                    .map(|s| {
+                        let a = start + sweep * (s as f32 / steps as f32);
+                        center + Vec2::new(a.cos(), a.sin()) * 29.0
+                    })
+                    .collect();
+                p.add(egui::Shape::line(pts, Stroke::new(2.0, emerald)));
+            }
+        }
+
+        if resp.drag_started() {
+            ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+        }
+        let tip = track_opt
+            .as_ref()
+            .map(|t| format!("{} — {} (Rê chuột/Bấm để mở)", t.title, t.artist))
+            .unwrap_or_else(|| "Đĩa nhạc PentaKuru (Bấm để mở)".into());
+        let resp = resp.on_hover_text(tip);
+
+        let outer_compact = ctx
+            .input(|i| i.viewport().outer_rect)
+            .is_some_and(|r| r.width() <= 80.0);
+        let pointer_entered = ctx.input(|i| {
+            i.pointer.delta() != Vec2::ZERO
+                || i.events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::PointerMoved(_)))
+        });
+        if !self.smoke_test
+            && outer_compact
+            && !resp.dragged()
+            && !resp.is_pointer_button_down_on()
+            && (resp.clicked() || (resp.hovered() && pointer_entered))
+        {
+            self.mini_music.collapsed_disc = false;
+            self.mini_music.touch();
+        }
+        true
+    }
+
+    pub(super) fn mini_music_contents(&mut self, ui: &mut egui::Ui) -> bool {
+        let ctx = ui.ctx().clone();
+        let mut open = true;
+        let snap = self.mini_music.engine.snapshot();
+        let is_playing = matches!(
+            snap.state,
+            crate::mcp_media::PlaybackState::Playing | crate::mcp_media::PlaybackState::Opening
+        );
+        let emerald = Color32::from_rgb(16, 185, 129);
+        let emerald_bright = Color32::from_rgb(52, 211, 153);
+
+        egui::Frame::new()
+            .fill(Color32::from_rgb(17, 21, 25))
+            .stroke(Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 32),
+            ))
+            .corner_radius(16)
+            .inner_margin(egui::Margin::symmetric(12, 10))
+            .show(ui, |ui| {
+                ui.set_width((ui.available_width()).max(220.0));
+                ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
+
+                let track_opt = self.mini_music.current_track().cloned();
+                if self.mini_music.queue_open {
+                    let mcp_ready = !self.prefs.integrations.resolved_music_key().is_empty();
+                    let mcp_busy = self.music_mcp_job.is_some();
+                    let mut submit_search = false;
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.spacing_mut().button_padding = Vec2::new(6.0, 2.5);
+                        let search_resp = ui.add(
+                            egui::TextEdit::singleline(&mut self.mini_music.search_query)
+                                .id_salt("mini-music-search")
+                                .desired_width(104.0)
+                                .font(egui::FontId::proportional(11.5))
+                                .hint_text("Tìm bài hát…"),
+                        );
+                        if search_resp.clicked() {
+                            ctx.send_viewport_cmd(ViewportCommand::Focus);
+                            search_resp.request_focus();
+                        }
+                        if search_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        {
+                            submit_search = true;
+                        }
+                        let has_q = !self.mini_music.search_query.trim().is_empty();
+                        if ui
+                            .add_enabled(
+                                has_q && mcp_ready && !mcp_busy,
+                                egui::Button::new("Tìm").small(),
+                            )
+                            .clicked()
+                        {
+                            submit_search = true;
+                        }
+                        if ui
+                            .add_enabled(
+                                mcp_ready && !mcp_busy,
+                                egui::Button::new("Hợp gu").small(),
+                            )
+                            .on_hover_text("Chọn nhạc hợp gu từ Penta Music")
+                            .clicked()
+                        {
+                            self.run_music_mcp_picker_tool(
+                                &ctx,
+                                "blend_history_and_taste",
+                                serde_json::json!({ "limit": 10, "remote_play": false }),
+                                false,
+                            );
+                        }
+                        if ui
+                            .add_enabled(
+                                mcp_ready && !mcp_busy,
+                                egui::Button::new("Bài mới").small(),
+                            )
+                            .on_hover_text("AI tự tìm các bài hát mới cùng gu")
+                            .clicked()
+                        {
+                            let q = if self.mini_music.search_query.trim().is_empty() {
+                                self.mini_music.derive_discovery_query()
+                            } else {
+                                self.mini_music.search_query.trim().to_owned()
+                            };
+                            self.run_music_mcp_discover_append(&ctx, q);
+                        }
+                        if ui
+                            .small_button("Web")
+                            .on_hover_text("Mở Penta Music trong WebView")
+                            .clicked()
+                            && let Err(err) = crate::integrations::music_open()
+                        {
+                            self.mini_music.status = Some(err);
+                        }
+                    });
+                    if submit_search {
+                        let q = self.mini_music.search_query.trim().to_owned();
+                        if !q.is_empty() && mcp_ready && !mcp_busy {
+                            self.run_music_mcp_picker_tool(
+                                &ctx,
+                                "search_and_stream_music",
+                                serde_json::json!({
+                                    "query": q,
+                                    "limit": 10,
+                                    "remote_play": false
+                                }),
+                                true,
+                            );
+                        }
+                    }
+
+                    if mcp_busy {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().size(12.0));
+                            theme::caption(ui, "Đang tải danh sách chọn nhạc…");
+                        });
+                    } else if self.mini_music.tracks.is_empty() {
+                        theme::caption(
+                            ui,
+                            if mcp_ready {
+                                "Bấm Hợp gu / Bài mới hoặc nhập tên bài để chọn nhạc."
+                            } else {
+                                "Nhập Music Key ở Alt+Q hoặc bấm Web để mở WebView."
+                            },
+                        );
+                    } else {
+                        let mut pick_idx = None;
+                        egui::ScrollArea::vertical()
+                            .id_salt("mini-music-queue")
+                            .max_height(88.0)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                for (idx, t) in self.mini_music.tracks.iter().enumerate() {
+                                    let active = track_opt.as_ref().is_some_and(|cur| {
+                                        !cur.video_id.is_empty() && cur.video_id == t.video_id
+                                    }) || (self.mini_music.active_track.is_none()
+                                        && idx == self.mini_music.current_index);
+                                    let label = format!("{}. {} — {}", idx + 1, t.title, t.artist);
+                                    let resp = ui.add(
+                                        egui::Button::new(
+                                            egui::RichText::new(label).size(11.5).color(
+                                                if active { emerald_bright } else { theme::TEXT },
+                                            ),
+                                        )
+                                        .fill(if active {
+                                            Color32::from_rgba_unmultiplied(16, 185, 129, 28)
+                                        } else {
+                                            Color32::TRANSPARENT
+                                        })
+                                        .frame(false)
+                                        .truncate(),
+                                    );
+                                    if resp.clicked() {
+                                        pick_idx = Some(idx);
+                                    }
+                                }
+                            });
+                        if let Some(idx) = pick_idx {
+                            self.mini_music.play_index(idx, &ctx);
+                        }
+                    }
+                    ui.separator();
+                }
+
+                let header = ui
+                    .horizontal(|ui| {
+                        let (art_rect, _) =
+                            ui.allocate_exact_size(Vec2::splat(46.0), Sense::hover());
+                        let tex = track_opt
+                            .as_ref()
+                            .and_then(|t| self.mini_music.thumbs.get(&t.video_id))
+                            .and_then(|o| o.as_ref());
+                        if let Some(tex) = tex {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(art_rect), |ui| {
+                                ui.add(
+                                    egui::Image::new(tex)
+                                        .fit_to_exact_size(Vec2::splat(46.0))
+                                        .corner_radius(23.0),
+                                );
+                            });
+                        } else {
+                            ui.painter().circle_filled(
+                                art_rect.center(),
+                                23.0,
+                                Color32::from_rgb(28, 34, 42),
+                            );
+                            ui.painter().text(
+                                art_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "♪",
+                                egui::FontId::proportional(20.0),
+                                emerald_bright,
+                            );
+                        }
+                        ui.painter().circle_stroke(
+                            art_rect.center(),
+                            22.5,
+                            Stroke::new(
+                                1.5,
+                                if is_playing {
+                                    emerald
+                                } else {
+                                    Color32::from_rgba_unmultiplied(255, 255, 255, 40)
+                                },
+                            ),
+                        );
+                        if is_playing {
+                            let badge = Rect::from_min_size(
+                                art_rect.max - Vec2::new(17.0, 13.0),
+                                Vec2::new(16.0, 12.0),
+                            );
+                            ui.painter().rect_filled(
+                                badge,
+                                4,
+                                Color32::from_rgba_unmultiplied(15, 18, 22, 225),
+                            );
+                            let base = badge.left_bottom() + Vec2::new(3.0, -2.0);
+                            let t = ui.input(|i| i.time as f32);
+                            for idx in 0..3 {
+                                let h =
+                                    3.0 + 5.0 * ((t * 6.0 + idx as f32 * 1.4).sin() * 0.5 + 0.5);
+                                let x = base.x + idx as f32 * 4.5;
+                                ui.painter().line_segment(
+                                    [Pos2::new(x, base.y), Pos2::new(x, base.y - h)],
+                                    Stroke::new(2.0, emerald_bright),
+                                );
+                            }
+                        }
+
+                        ui.vertical(|ui| {
+                            ui.set_width(ui.available_width());
+                            let title = track_opt
+                                .as_ref()
+                                .map(|t| t.title.as_str())
+                                .unwrap_or("Chưa có bài hát");
+                            let artist = track_opt
+                                .as_ref()
+                                .map(|t| t.artist.as_str())
+                                .unwrap_or("Penta Music MCP");
+                            let drag_info = ui
+                                .vertical(|ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(title)
+                                                .size(13.5)
+                                                .strong()
+                                                .color(theme::TEXT),
+                                        )
+                                        .truncate(),
+                                    );
+                                    let time_label = if snap.duration_secs > 0.5 {
+                                        format!(
+                                            "{} · {} / {}",
+                                            artist,
+                                            crate::mcp_media::format_time(snap.position_secs),
+                                            crate::mcp_media::format_time(snap.duration_secs)
+                                        )
+                                    } else if let Some(t) = &track_opt
+                                        && !t.duration_formatted.is_empty()
+                                    {
+                                        format!("{artist} · {}", t.duration_formatted)
+                                    } else {
+                                        artist.to_owned()
+                                    };
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(time_label)
+                                                .size(11.5)
+                                                .color(theme::MUTED),
+                                        )
+                                        .truncate(),
+                                    );
+                                })
+                                .response
+                                .interact(Sense::drag());
+                            if drag_info.drag_started() {
+                                ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+                            }
+
+                            let (bar_rect, bar_resp) = ui.allocate_exact_size(
+                                Vec2::new(ui.available_width().max(40.0), 8.0),
+                                Sense::click_and_drag(),
+                            );
+                            let track_line = Rect::from_center_size(
+                                bar_rect.center(),
+                                Vec2::new(bar_rect.width(), 3.0),
+                            );
+                            ui.painter()
+                                .rect_filled(track_line, 2, Color32::from_rgb(38, 44, 52));
+                            let frac = if snap.duration_secs > 0.5 {
+                                (snap.position_secs / snap.duration_secs).clamp(0.0, 1.0) as f32
+                            } else {
+                                0.0
+                            };
+                            if frac > 0.0 {
+                                let fill_rect = Rect::from_min_size(
+                                    track_line.min,
+                                    Vec2::new(track_line.width() * frac, track_line.height()),
+                                );
+                                ui.painter().rect_filled(fill_rect, 2, emerald);
+                            }
+                            if (bar_resp.clicked() || bar_resp.dragged())
+                                && snap.duration_secs > 0.5
+                                && let Some(pos) = bar_resp.interact_pointer_pos()
+                            {
+                                let seek_frac = ((pos.x - track_line.min.x) / track_line.width())
+                                    .clamp(0.0, 1.0)
+                                    as f64;
+                                self.mini_music.engine.seek(snap.duration_secs * seek_frac);
+                            }
+                        });
+                    })
+                    .response;
+                header.context_menu(|ui| {
+                    compact_menu(ui);
+                    if ui.button("Thu gọn thành đĩa tròn").clicked() {
+                        self.mini_music.queue_open = false;
+                        self.mini_music.collapsed_disc = true;
+                        ui.close();
+                    }
+                    if !self.prefs.integrations.resolved_music_key().is_empty()
+                        && ui.button("Tìm bài mới (AI)").clicked()
+                    {
+                        let q = self.mini_music.derive_discovery_query();
+                        self.run_music_mcp_discover_append(&ctx, q);
+                        ui.close();
+                    }
+                    if ui.button("Đóng trình phát").clicked() {
+                        open = false;
+                        ui.close();
+                    }
+                });
+
+                let div_rect = ui.allocate_space(Vec2::new(ui.available_width(), 1.0)).1;
+                ui.painter().line_segment(
+                    [div_rect.left_center(), div_rect.right_center()],
+                    Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20)),
+                );
+
+                // Evenly balanced control row: playback left, utilities right
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    if mini_media_btn(
+                        ui,
+                        MiniBtn::Shuffle,
+                        if self.mini_music.shuffle {
+                            "Phát ngẫu nhiên: Bật"
+                        } else {
+                            "Phát ngẫu nhiên: Tắt"
+                        },
+                        self.mini_music.shuffle,
+                    )
+                    .clicked()
+                    {
+                        self.mini_music.shuffle = !self.mini_music.shuffle;
+                    }
+                    if mini_media_btn(ui, MiniBtn::Prev, "Bài trước", false).clicked() {
+                        self.mini_music.prev(&ctx);
+                    }
+                    let (pp_rect, pp_resp) =
+                        ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
+                    let pp_fill = if pp_resp.hovered() {
+                        emerald_bright
+                    } else {
+                        emerald
+                    };
+                    ui.painter().circle_filled(pp_rect.center(), 16.0, pp_fill);
+                    let c = pp_rect.center();
+                    if is_playing {
+                        ui.painter().rect_filled(
+                            Rect::from_center_size(c - Vec2::new(3.0, 0.0), Vec2::new(3.0, 10.0)),
+                            1.0,
+                            Color32::WHITE,
+                        );
+                        ui.painter().rect_filled(
+                            Rect::from_center_size(c + Vec2::new(3.0, 0.0), Vec2::new(3.0, 10.0)),
+                            1.0,
+                            Color32::WHITE,
+                        );
+                    } else {
+                        ui.painter().add(egui::Shape::convex_polygon(
+                            vec![
+                                c + Vec2::new(-3.5, -5.5),
+                                c + Vec2::new(6.0, 0.0),
+                                c + Vec2::new(-3.5, 5.5),
+                            ],
+                            Color32::WHITE,
+                            Stroke::NONE,
+                        ));
+                    }
+                    if pp_resp
+                        .on_hover_text(if is_playing { "Tạm dừng" } else { "Phát" })
+                        .clicked()
+                    {
+                        self.mini_music.toggle_play_pause(&ctx);
+                    }
+
+                    let can_discover = !self.smoke_test
+                        && !self.prefs.integrations.resolved_music_key().is_empty();
+                    if mini_media_btn(ui, MiniBtn::Next, "Bài tiếp / tìm bài mới", false).clicked()
+                    {
+                        self.mini_music.next_or_discover(can_discover, &ctx);
+                    }
+                    if mini_media_btn(
+                        ui,
+                        MiniBtn::Repeat,
+                        if self.mini_music.repeat {
+                            "Lặp lại bài: Bật"
+                        } else {
+                            "Lặp lại bài: Tắt"
+                        },
+                        self.mini_music.repeat,
+                    )
+                    .clicked()
+                    {
+                        self.mini_music.repeat = !self.mini_music.repeat;
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        if mini_media_btn(ui, MiniBtn::Close, "Đóng trình phát", false).clicked()
+                        {
+                            open = false;
+                        }
+                        if mini_media_btn(
+                            ui,
+                            MiniBtn::Queue,
+                            "Chọn nhạc / Danh sách phát",
+                            self.mini_music.queue_open,
+                        )
+                        .clicked()
+                        {
+                            self.mini_music.queue_open = !self.mini_music.queue_open;
+                        }
+                        let vol_pct = (self.mini_music.volume * 100.0).round() as u8;
+                        let vol_tip = if vol_pct == 0 {
+                            "Đang tắt tiếng (bấm bật 85%)".to_owned()
+                        } else {
+                            format!("Âm lượng {vol_pct}% (bấm đổi 45% / Tắt)")
+                        };
+                        if mini_media_btn(ui, MiniBtn::Volume(vol_pct), &vol_tip, false).clicked() {
+                            self.mini_music.volume = if self.mini_music.volume > 0.6 {
+                                0.45
+                            } else if self.mini_music.volume > 0.05 {
+                                0.0
+                            } else {
+                                0.85
+                            };
+                            self.mini_music.engine.set_volume(self.mini_music.volume);
+                        }
+                        if mini_media_btn(
+                            ui,
+                            MiniBtn::Download,
+                            "Tải bài hát về Downloads",
+                            self.music_download_job.is_some(),
+                        )
+                        .clicked()
+                            && self.music_download_job.is_none()
+                            && let Some(t) = &track_opt
+                        {
+                            let target = if t.download_url.is_empty() {
+                                t.stream_url.clone()
+                            } else {
+                                t.download_url.clone()
+                            };
+                            let title = t.title.clone();
+                            self.mini_music.status = Some("Đang tải bài hát về Downloads…".into());
+                            self.music_download_job = Some(system::Job::spawn(&ctx, move || {
+                                crate::mcp_media::download_track_file(&target, &title)
+                            }));
+                        }
+                    });
+                });
+
+                if let Some(status_msg) = &self.mini_music.status {
+                    let color = if status_msg.starts_with("Đã tải")
+                        || status_msg.contains("đang tìm")
+                    {
+                        emerald_bright
+                    } else {
+                        Color32::from_rgb(248, 113, 113)
+                    };
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(status_msg).size(11.0).color(color))
+                            .wrap(),
+                    );
+                }
+            });
+
+        open
     }
 
     pub(super) fn notes_ui(&mut self, viewport_ui: &mut egui::Ui) -> bool {
@@ -1371,10 +2172,7 @@ impl PentaKuru {
 
                         if response.clicked() {
                             let q_trim = self.search_state.query.trim();
-                            if ai::ui_command(q_trim).is_some()
-                                || ai::note_command(q_trim).is_some()
-                                || item.size == "[UI]"
-                            {
+                            if ai::note_command(q_trim).is_some() {
                                 self.ai_prompt = q_trim.to_string();
                                 self.search_open = false;
                                 self.ai_open = true;
@@ -1388,7 +2186,7 @@ impl PentaKuru {
 
                     if enter_pressed {
                         let q_trim = self.search_state.query.trim();
-                        if ai::ui_command(q_trim).is_some() || ai::note_command(q_trim).is_some() {
+                        if ai::note_command(q_trim).is_some() {
                             self.ai_prompt = q_trim.to_string();
                             self.search_open = false;
                             self.ai_open = true;
@@ -1400,10 +2198,9 @@ impl PentaKuru {
                         }
                     }
                 } else if enter_pressed
-                    && (ai::ui_command(self.search_state.query.trim()).is_some()
-                        || ai::note_command(self.search_state.query.trim()).is_some())
+                    && ai::note_command(self.search_state.query.trim()).is_some()
                 {
-                    // Cho phép Enter kích hoạt @ui hoặc @note ngay cả khi không có danh sách
+                    // Cho phép Enter kích hoạt @note ngay cả khi không có danh sách
                     self.ai_prompt = self.search_state.query.trim().to_string();
                     self.search_open = false;
                     self.ai_open = true;
@@ -1415,24 +2212,380 @@ impl PentaKuru {
         open
     }
 
+    pub(super) fn ai_reply_bubble_visible(&self) -> bool {
+        !self.ai_history_expanded
+            && !self.ai_bubble_dismissed
+            && (!self.ai_history.is_empty() || self.ai_job.is_some() || self.ai_status.is_some())
+    }
+
+    pub(super) fn ai_reply_bubble_ui(&mut self, viewport_ui: &mut egui::Ui) {
+        let ctx = viewport_ui.ctx().clone();
+        if !egui::Popup::is_any_open(&ctx)
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            if self.ai_job.is_some() {
+                self.cancel_ai();
+            } else {
+                self.ai_bubble_dismissed = true;
+            }
+        }
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(viewport_ui, |ui| {
+                self.ai_reply_bubble_contents(ui);
+            });
+    }
+
+    pub(super) fn ai_reply_bubble_contents(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let preview = self.ai_bubble_preview();
+        let busy =
+            self.ai_job.is_some() || self.music_mcp_job.is_some() || self.clip_mcp_job.is_some();
+        let max_w = ui.available_width().max(180.0);
+
+        let mut bubble_menu_open = false;
+        let mut expand_requested = false;
+        let mut dismiss_requested = false;
+        let mut reset_requested = false;
+        let mut save_reply = None;
+        let mut stop_requested = false;
+
+        let card = egui::Frame::new()
+            .fill(Color32::from_rgba_unmultiplied(24, 24, 28, 242))
+            .stroke(Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 36),
+            ))
+            .corner_radius(22)
+            .inner_margin(egui::Margin::symmetric(14, 10))
+            .show(ui, |ui| {
+                ui.set_width((max_w - 28.0).max(120.0));
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                ui.spacing_mut().item_spacing = Vec2::new(8.0, 4.0);
+
+                ui.horizontal(|ui| {
+                    let (badge_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
+                    match preview.tone {
+                        BubbleTone::Busy => {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(badge_rect), |ui| {
+                                ui.add(
+                                    egui::Spinner::new()
+                                        .size(15.0)
+                                        .color(Color32::from_rgb(96, 165, 250)),
+                                );
+                            });
+                        }
+                        BubbleTone::Error => {
+                            let c = badge_rect.center();
+                            ui.painter()
+                                .circle_filled(c, 8.0, Color32::from_rgb(239, 68, 68));
+                            ui.painter().text(
+                                c,
+                                egui::Align2::CENTER_CENTER,
+                                "!",
+                                egui::FontId::proportional(11.5),
+                                Color32::WHITE,
+                            );
+                        }
+                        BubbleTone::Success => {
+                            let c = badge_rect.center();
+                            ui.painter()
+                                .circle_filled(c, 8.0, Color32::from_rgb(34, 197, 94));
+                            let s = Stroke::new(1.8, Color32::WHITE);
+                            ui.painter().line_segment(
+                                [c + Vec2::new(-3.6, 0.2), c + Vec2::new(-1.0, 2.8)],
+                                s,
+                            );
+                            ui.painter().line_segment(
+                                [c + Vec2::new(-1.0, 2.8), c + Vec2::new(3.8, -2.8)],
+                                s,
+                            );
+                        }
+                    }
+
+                    let speaking = self.tts_player.is_speaking();
+                    let actions_reserve = if busy || speaking || !self.ai_history.is_empty() {
+                        48.0
+                    } else {
+                        24.0
+                    };
+                    let title_w = (ui.available_width() - actions_reserve).max(40.0);
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(title_w, 20.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_max_width(title_w);
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&preview.title)
+                                        .size(13.5)
+                                        .strong()
+                                        .color(theme::TEXT),
+                                )
+                                .truncate(),
+                            );
+                        },
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if bubble_micro_icon(ui, BubbleIcon::Close, "Ẩn bong bóng · Esc").clicked()
+                        {
+                            dismiss_requested = true;
+                        }
+                        if busy {
+                            if bubble_micro_icon(ui, BubbleIcon::Stop, "Dừng tác vụ").clicked()
+                            {
+                                stop_requested = true;
+                            }
+                        } else if speaking {
+                            if bubble_micro_icon(ui, BubbleIcon::Stop, "Dừng giọng đọc").clicked()
+                            {
+                                self.tts_player.stop();
+                            }
+                        } else if !self.ai_history.is_empty()
+                            && bubble_micro_icon(ui, BubbleIcon::Expand, "Mở rộng hội thoại")
+                                .clicked()
+                        {
+                            expand_requested = true;
+                        }
+                    });
+                });
+
+                if !preview.body.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(26.0);
+                        ui.vertical(|ui| {
+                            ui.set_max_width((max_w - 54.0).max(100.0));
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&preview.body)
+                                        .size(13.0)
+                                        .color(Color32::from_rgb(205, 207, 214)),
+                                )
+                                .wrap(),
+                            );
+                            if preview.truncated
+                                && ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("Xem đầy đủ →")
+                                                .size(11.5)
+                                                .color(Color32::from_rgb(125, 178, 255)),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .clicked()
+                            {
+                                expand_requested = true;
+                            }
+                            if preview.tone == BubbleTone::Error
+                                && (preview.body.contains("Key")
+                                    || preview.body.contains("Cài đặt"))
+                                && ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("Mở Cài đặt (Alt + Q) →")
+                                                .size(11.5)
+                                                .color(Color32::from_rgb(125, 178, 255)),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .clicked()
+                            {
+                                self.settings_open = true;
+                            }
+                        });
+                    });
+                }
+            });
+
+        let measured = (card.response.rect.height() + 2.0).clamp(60.0, 180.0);
+        if (measured - self.ai_bubble_height).abs() > 1.0 {
+            self.ai_bubble_height = measured;
+            ctx.request_repaint();
+        }
+
+        let reply_to_copy = preview
+            .full_reply
+            .clone()
+            .unwrap_or_else(|| preview.body.clone());
+        let can_save = preview.full_reply.is_some();
+        show_context_menu(
+            &card.response,
+            egui::Id::new("ai-bubble-context-menu"),
+            |ui| {
+                bubble_menu_open = true;
+                compact_menu(ui);
+                if !self.ai_history.is_empty() && ui.button("Mở rộng hội thoại").clicked() {
+                    expand_requested = true;
+                    ui.close();
+                }
+                if !reply_to_copy.is_empty() && ui.button("Sao chép câu trả lời").clicked() {
+                    ctx.copy_text(reply_to_copy.clone());
+                    ui.close();
+                }
+                if can_save
+                    && ui.button("Thêm vào ghi chú đang chọn").clicked()
+                    && let Some(full) = preview.full_reply.clone()
+                {
+                    save_reply = Some(full);
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Hội thoại mới"))
+                    .clicked()
+                {
+                    reset_requested = true;
+                    ui.close();
+                }
+                if self.tts_player.is_speaking() && ui.button("Dừng giọng đọc").clicked() {
+                    self.tts_player.stop();
+                    ui.close();
+                }
+                if ui.button("Cài đặt AI").clicked() {
+                    self.settings_open = true;
+                    ui.close();
+                }
+                if ui.button("Ẩn bong bóng").clicked() {
+                    dismiss_requested = true;
+                    ui.close();
+                }
+            },
+        );
+        if bubble_menu_open != self.ai_bubble_menu_open {
+            ctx.request_repaint();
+        }
+        self.ai_bubble_menu_open = bubble_menu_open;
+
+        if stop_requested {
+            self.cancel_ai();
+        }
+        if dismiss_requested {
+            self.ai_bubble_dismissed = true;
+        }
+        if expand_requested {
+            self.ai_history_expanded = true;
+            self.ai_open = true;
+        }
+        if reset_requested {
+            self.reset_chat();
+        }
+        if let Some(reply) = save_reply {
+            self.ai_status = Some(match self.notes_mgr.append_ai_reply(&reply) {
+                Ok(message) => {
+                    self.notes_open = true;
+                    self.workspace.preview = true;
+                    message
+                }
+                Err(error) => error,
+            });
+        }
+    }
+
+    fn ai_bubble_preview(&self) -> BubblePreview {
+        let latest_user = self
+            .ai_history
+            .iter()
+            .rev()
+            .find(|m| m.role == ai::Role::User)
+            .map(|m| clean_prompt_title(&m.text));
+        let latest_assistant = self
+            .ai_history
+            .iter()
+            .rev()
+            .find(|m| m.role == ai::Role::Assistant);
+
+        if self.ai_job.is_some() || self.music_mcp_job.is_some() || self.clip_mcp_job.is_some() {
+            return BubblePreview {
+                tone: BubbleTone::Busy,
+                title: latest_user.unwrap_or_else(|| "Đang xử lý…".into()),
+                body: self
+                    .ai_status
+                    .clone()
+                    .unwrap_or_else(|| "AI đang suy nghĩ…".into()),
+                truncated: false,
+                full_reply: None,
+            };
+        }
+
+        if let Some(status) = &self.ai_status {
+            let is_err = status.starts_with("Lỗi")
+                || status.starts_with("Chưa ")
+                || status.contains("Chưa cấu hình")
+                || status.contains("Bật Penta Music")
+                || status.contains("Không ")
+                || status.starts_with("Nhập ");
+            if is_err || latest_assistant.is_none() {
+                let (body, truncated) = compact_bubble_text(status, 3, 210);
+                return BubblePreview {
+                    tone: if is_err {
+                        BubbleTone::Error
+                    } else {
+                        BubbleTone::Success
+                    },
+                    title: if is_err {
+                        "Thông báo AI".into()
+                    } else {
+                        latest_user.unwrap_or_else(|| "PentaKuru".into())
+                    },
+                    body,
+                    truncated,
+                    full_reply: None,
+                };
+            }
+        }
+
+        if let Some(reply) = latest_assistant {
+            let is_err =
+                reply.text.starts_with("Lỗi:") || reply.text.starts_with("Không thực hiện được");
+            let (mut body, mut truncated) = compact_bubble_text(&reply.text, 4, 220);
+            if !reply.images.is_empty() {
+                truncated = true;
+            }
+            if let Some(status) = &self.ai_status {
+                body = format!("{body}\n{status}");
+            }
+            return BubblePreview {
+                tone: if is_err {
+                    BubbleTone::Error
+                } else {
+                    BubbleTone::Success
+                },
+                title: latest_user.unwrap_or_else(|| "PentaKuru".into()),
+                body,
+                truncated,
+                full_reply: Some(reply.text.clone()),
+            };
+        }
+
+        BubblePreview {
+            tone: BubbleTone::Success,
+            title: latest_user.unwrap_or_else(|| "PentaKuru".into()),
+            body: String::new(),
+            truncated: false,
+            full_reply: None,
+        }
+    }
+
     pub(super) fn ai_ui(&mut self, viewport_ui: &mut egui::Ui) -> bool {
         let mut open = true;
         let ctx = viewport_ui.ctx().clone();
-        let busy = self.ai_job.is_some() || self.ui_agent.is_active;
+        let busy = self.ai_job.is_some();
         if ctx.input(|i| i.viewport().close_requested()) {
             open = false;
         }
-        // Escape dismisses a menu first, then stops a task, then closes the dock.
+        // Escape dismisses a menu first, then stops a task, then collapses/closes the dock.
         if !egui::Popup::is_any_open(&ctx)
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
         {
             if busy {
                 self.cancel_ai();
+            } else if self.ai_history_expanded {
+                self.ai_history_expanded = false;
             } else {
                 open = false;
             }
         }
-        let plain_enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         for file in dropped {
             let path = file.path().to_path_buf();
@@ -1440,14 +2593,14 @@ impl PentaKuru {
                 self.ai_attached_files.push(path);
             }
         }
-        let has_content = !self.ai_history.is_empty() || busy || self.ai_status.is_some();
-        let ui_mode = ai::ui_command(&self.ai_prompt).is_some() || self.ui_agent.is_active;
-        let note_mode = ai::note_command(&self.ai_prompt).is_some();
+
+        let expanded = self.ai_history_expanded;
         let mut reset = false;
         let mut attach = false;
         let mut save_reply = None;
+
         let panel = egui::CentralPanel::default()
-            .frame(if has_content {
+            .frame(if expanded {
                 egui::Frame::new()
                     .fill(theme::PANEL)
                     .stroke(Stroke::new(1.0, theme::BORDER))
@@ -1456,344 +2609,16 @@ impl PentaKuru {
             } else {
                 egui::Frame::NONE.inner_margin(10)
             })
-            .show(viewport_ui, |ui| {
-                if !has_content {
-                    let shared = self
-                        .notes_mgr
-                        .notes
-                        .iter()
-                        .filter(|note| note.ai_shared)
-                        .count();
-                    let height =
-                        composer_height(&self.ai_prompt, (ui.available_width() - 114.0).max(1.0))
-                            + 22.0
-                            + if shared > 0 { 24.0 } else { 0.0 };
-                    let rect = Rect::from_min_size(
-                        ui.max_rect().min - Vec2::splat(10.0),
-                        Vec2::new(ui.available_width() + 20.0, height),
-                    );
-                    ui.painter().rect(
-                        rect,
-                        24,
-                        theme::PANEL,
-                        Stroke::new(1.0, theme::BORDER),
-                        egui::StrokeKind::Inside,
-                    );
-                    if shared > 0 {
-                        ui.label(
-                            egui::RichText::new(format!("AI · {shared} note làm ngữ cảnh"))
-                                .small()
-                                .color(Color32::from_rgb(100, 220, 175)),
-                        );
-                    }
-                }
-                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-                ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
-                // Allocate the editor's column explicitly. TextEdit can grow vertically,
-                // so the scroll area bounds both pasted lines and soft-wrapped lines.
-                ui.horizontal_top(|ui| {
-                    let mode = theme::icon(
-                        ui,
-                        if ui_mode {
-                            Glyph::Camera
-                        } else if note_mode {
-                            Glyph::File
-                        } else {
-                            Glyph::Spark
-                        },
-                        if ui_mode {
-                            "Điều khiển màn hình (@ui) · bấm để chuyển sang Chat"
-                        } else if note_mode {
-                            "Tạo ghi chú & công việc (@note) · bấm để chuyển sang @ui"
-                        } else {
-                            "Chat · bấm để chuyển sang @note / @ui"
-                        },
-                        !busy,
-                    );
-                    if mode.clicked() && !busy {
-                        self.ai_prompt = if let Some(goal) = ai::ui_command(&self.ai_prompt) {
-                            goal.to_owned()
-                        } else if let Some(goal) = ai::note_command(&self.ai_prompt) {
-                            format!("@ui {goal}")
-                        } else {
-                            format!("@note {}", self.ai_prompt)
-                        };
-                        self.ai_focus = 1;
-                    }
-                    let width = (ui.available_width() - 76.0).max(1.0);
-                    let editor_height = composer_height(&self.ai_prompt, width).min(
-                        (ui.available_height() - if has_content { 100.0 } else { 0.0 }).max(32.0),
-                    );
-                    let editor = ui
-                        .allocate_ui_with_layout(
-                            Vec2::new(width, editor_height),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
-                                ui.set_width(width);
-                                egui::ScrollArea::vertical()
-                                    .id_salt("ai-composer-scroll")
-                                    .max_height(editor_height)
-                                    .auto_shrink([false, true])
-                                    .show(ui, |ui| {
-                                        ui.add(
-                                            egui::TextEdit::multiline(&mut self.ai_prompt)
-                                                .id_salt("pill-chat-input")
-                                                .frame(egui::Frame::NONE)
-                                                .font(egui::FontId::proportional(14.0))
-                                                .desired_width(ui.available_width())
-                                                .desired_rows(1)
-                                                .min_size(Vec2::new(0.0, 32.0))
-                                                .lock_focus(true)
-                                                .return_key(egui::KeyboardShortcut::new(
-                                                    egui::Modifiers::SHIFT,
-                                                    egui::Key::Enter,
-                                                ))
-                                                .hint_text(if ui_mode {
-                                                    "Mô tả thao tác trên màn hình…"
-                                                } else if note_mode {
-                                                    "Mô tả ghi chú hoặc công việc cần AI tạo…"
-                                                } else {
-                                                    "Hỏi AI hoặc gõ @note để tạo ghi chú & công việc…"
-                                                }),
-                                        )
-                                    })
-                                    .inner
-                            },
-                        )
-                        .inner;
-                    editor.context_menu(|ui| {
-                        compact_menu(ui);
-                        if ui
-                            .add_enabled(
-                                !self.ai_prompt.is_empty(),
-                                egui::Button::new("Sao chép nội dung"),
-                            )
-                            .clicked()
-                        {
-                            ctx.copy_text(self.ai_prompt.clone());
-                            ui.close();
-                        }
-                        if ui.button("Dán").clicked() {
-                            if let Ok(mut clipboard) = arboard::Clipboard::new()
-                                && let Ok(text) = clipboard.get_text()
-                            {
-                                self.ai_prompt.push_str(&text);
-                            }
-                            self.ai_focus = 1;
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(
-                                !self.ai_prompt.is_empty(),
-                                egui::Button::new("Xóa nội dung"),
-                            )
-                            .clicked()
-                        {
-                            self.ai_prompt.clear();
-                            ui.close();
-                        }
-                    });
-                    if self.ai_focus > 0 && !self.ui_agent.is_active {
-                        ui.ctx().send_viewport_cmd(ViewportCommand::Focus);
-                        editor.request_focus();
-                        self.ai_focus = if editor.has_focus() {
-                            0
-                        } else {
-                            self.ai_focus.saturating_sub(1)
-                        };
-                    }
-                    let attachment_label = if self.ai_attached_files.is_empty() {
-                        "Đính kèm tệp".to_owned()
-                    } else {
-                        format!(
-                            "{} tệp đính kèm · chuột phải để gỡ",
-                            self.ai_attached_files.len()
-                        )
-                    };
-                    let files = theme::icon(ui, Glyph::Attach, &attachment_label, !busy);
-                    attach = files.clicked() && !busy;
-                    files.context_menu(|ui| {
-                        compact_menu(ui);
-                        ui.label(format!("{} tệp đính kèm", self.ai_attached_files.len()));
-                        if ui
-                            .add_enabled(
-                                !busy && !self.ai_attached_files.is_empty(),
-                                egui::Button::new("Gỡ tất cả tệp"),
-                            )
-                            .clicked()
-                        {
-                            self.ai_attached_files.clear();
-                            ui.close();
-                        }
-                    });
-                    let can_send = !busy
-                        && (!self.ai_prompt.trim().is_empty()
-                            || !self.ai_attached_files.is_empty());
-                    if busy {
-                        let stop = theme::icon(ui, Glyph::Stop, "Dừng tác vụ · Esc", true);
-                        if stop.clicked() {
-                            self.cancel_ai();
-                        }
-                    } else if can_send {
-                        if theme::icon(ui, Glyph::Arrow, "Gửi · Enter", true).clicked()
-                            || (plain_enter && editor.has_focus())
-                        {
-                            self.send_ai_prompt(&ctx);
-                        }
-                    } else if theme::icon(ui, Glyph::Close, "Đóng · Esc", true).clicked() {
-                        open = false;
-                    }
-                });
+            .show(viewport_ui, |ui| self.ai_contents(ui));
 
-                if has_content {
-                    ui.separator();
-                    let header = ui
-                        .horizontal(|ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(if self.ui_agent.is_active {
-                                        format!("Màn hình · Bước {}", self.ui_agent.current_step)
-                                    } else if self.ai_mode == crate::AiMode::UiTars {
-                                        "Điều khiển màn hình".to_owned()
-                                    } else {
-                                        "PentaKuru".to_owned()
-                                    })
-                                    .small()
-                                    .color(theme::MUTED),
-                                )
-                                .truncate(),
-                            );
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if busy
-                                        && theme::icon(ui, Glyph::Close, "Đóng khung chat", true)
-                                            .clicked()
-                                    {
-                                        open = false;
-                                    }
-                                    if !busy
-                                        && theme::icon(ui, Glyph::Plus, "Hội thoại mới", true)
-                                            .clicked()
-                                    {
-                                        reset = true;
-                                    }
-                                },
-                            );
-                        })
-                        .response;
-                    show_context_menu(&header, egui::Id::new("chat-header-menu"), |ui| {
-                        self.chat_menu(ui, &mut open, &mut reset)
-                    });
-                    egui::ScrollArea::vertical()
-                        .id_salt("chat-history")
-                        .auto_shrink([false, false])
-                        .max_height(ui.available_height().max(1.0))
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            for (index, message) in self.ai_history.iter().enumerate() {
-                                ui.push_id(index, |ui| {
-                                    let message_frame = egui::Frame::new()
-                                        .fill(if message.role == ai::Role::User {
-                                            theme::SURFACE
-                                        } else {
-                                            theme::PANEL
-                                        })
-                                        .corner_radius(8)
-                                        .inner_margin(8)
-                                        .show(ui, |ui| {
-                                            ui.set_width(ui.available_width());
-                                            theme::caption(
-                                                ui,
-                                                if message.role == ai::Role::User {
-                                                    "Bạn"
-                                                } else {
-                                                    "PentaKuru"
-                                                },
-                                            );
-                                            theme::render_markdown(ui, &message.text);
-                                            if message.role == ai::Role::Assistant
-                                                && ui
-                                                    .small_button("Thêm vào ghi chú đang chọn")
-                                                    .clicked()
-                                            {
-                                                save_reply = Some(message.text.clone());
-                                            }
-                                            for img in &message.images {
-                                                if let Some(tex) = get_or_load_thumbnail(
-                                                    ui.ctx(),
-                                                    &mut self.thumbnail_cache,
-                                                    img,
-                                                ) {
-                                                    ui.add(
-                                                        egui::Image::new(&tex)
-                                                            .max_width(
-                                                                ui.available_width().min(320.0),
-                                                            )
-                                                            .max_height(130.0)
-                                                            .corner_radius(6),
-                                                    );
-                                                }
-                                                if let Some(path) = &img.file_path
-                                                    && ui.small_button("Mở ảnh gốc").clicked()
-                                                {
-                                                    let _ = system::open(path);
-                                                }
-                                            }
-                                        });
-                                    show_context_menu(
-                                        &message_frame.response,
-                                        egui::Id::new(("chat-message-menu", index)),
-                                        |ui| {
-                                            compact_menu(ui);
-                                            if ui.button("Sao chép tin nhắn").clicked() {
-                                                ctx.copy_text(message.text.clone());
-                                                ui.close();
-                                            }
-                                            if ui
-                                                .add_enabled(
-                                                    !busy,
-                                                    egui::Button::new("Hội thoại mới"),
-                                                )
-                                                .clicked()
-                                            {
-                                                reset = true;
-                                                ui.close();
-                                            }
-                                        },
-                                    );
-                                });
-                            }
-                            // Progress belongs to the scrollable content: a long goal or
-                            // model status never takes space from the editor or its controls.
-                            if self.ui_agent.is_active {
-                                ui.horizontal(|ui| {
-                                    ui.spinner();
-                                    ui.label(format!("Bước {}", self.ui_agent.current_step));
-                                });
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&self.ui_agent.last_status_message)
-                                            .small()
-                                            .color(theme::MUTED),
-                                    )
-                                    .wrap(),
-                                );
-                            } else if let Some(status) = &self.ai_status {
-                                if self.ai_job.is_some() {
-                                    ui.spinner();
-                                }
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(status).small().color(theme::MUTED),
-                                    )
-                                    .wrap(),
-                                );
-                            }
-                        });
-                }
-            });
+        let (inner_open, inner_reset, inner_attach, inner_save) = panel.inner;
+        if !inner_open {
+            open = false;
+        }
+        reset |= inner_reset;
+        attach |= inner_attach;
+        save_reply = save_reply.or(inner_save);
+
         let background = panel.response;
         if matches!(
             self.ui_preview.as_deref(),
@@ -1838,11 +2663,438 @@ impl PentaKuru {
         open
     }
 
+    pub(super) fn ai_contents(&mut self, ui: &mut egui::Ui) -> (bool, bool, bool, Option<String>) {
+        let ctx = ui.ctx().clone();
+        let busy = self.ai_job.is_some();
+        let expanded = self.ai_history_expanded;
+        let plain_enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        let note_mode = ai::note_command(&self.ai_prompt).is_some();
+        let mut open = true;
+        let mut reset = false;
+        let mut attach = false;
+        let mut save_reply = None;
+        let mut music_picker_requested = false;
+
+        if !expanded {
+            let shared = self
+                .notes_mgr
+                .notes
+                .iter()
+                .filter(|note| note.ai_shared)
+                .count();
+            let has_strip = shared > 0 || !self.ai_attached_files.is_empty() || note_mode;
+            let height = composer_height(&self.ai_prompt, (ui.available_width() - 84.0).max(1.0))
+                + 20.0
+                + if has_strip { 20.0 } else { 0.0 };
+            let rect = Rect::from_min_size(
+                ui.max_rect().min - Vec2::splat(10.0),
+                Vec2::new(ui.available_width() + 20.0, height),
+            );
+            ui.painter().rect(
+                rect,
+                26,
+                Color32::from_rgba_unmultiplied(24, 24, 28, 242),
+                Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 36)),
+                egui::StrokeKind::Inside,
+            );
+            if has_strip {
+                let mut tags = Vec::new();
+                if note_mode {
+                    tags.push("@note Tạo ghi chú".to_owned());
+                }
+                if shared > 0 {
+                    tags.push(format!("{shared} note"));
+                }
+                if !self.ai_attached_files.is_empty() {
+                    tags.push(format!("{} tệp", self.ai_attached_files.len()));
+                }
+                ui.label(
+                    egui::RichText::new(format!("AI · {}", tags.join(" · ")))
+                        .small()
+                        .color(Color32::from_rgb(100, 220, 175)),
+                );
+            }
+        }
+
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+        ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
+
+        // Composer row: `[+] [ TextEdit ] [↑ / Stop]`
+        ui.horizontal_top(|ui| {
+            let plus_hint = if !self.ai_attached_files.is_empty() {
+                format!(
+                    "Tùy chọn & tệp ({} tệp đính kèm)",
+                    self.ai_attached_files.len()
+                )
+            } else if note_mode {
+                "Tùy chọn · đang ở chế độ @note".to_owned()
+            } else {
+                "Tùy chọn chat & đính kèm".to_owned()
+            };
+            let plus_resp = plus_pill_button(
+                ui,
+                &plus_hint,
+                !busy,
+                !self.ai_attached_files.is_empty() || note_mode,
+            );
+            egui::Popup::menu(&plus_resp).show(|ui| {
+                compact_menu(ui);
+                if ui
+                    .add_enabled(
+                        !busy && (!self.ai_history.is_empty() || self.ai_status.is_some()),
+                        egui::Button::new("Hội thoại mới"),
+                    )
+                    .clicked()
+                {
+                    reset = true;
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Đính kèm tệp…"))
+                    .clicked()
+                {
+                    attach = true;
+                    ui.close();
+                }
+                if !self.ai_attached_files.is_empty()
+                    && ui
+                        .add_enabled(!busy, egui::Button::new("Gỡ tất cả tệp"))
+                        .clicked()
+                {
+                    self.ai_attached_files.clear();
+                    ui.close();
+                }
+                if ui.button("Chọn nhạc nhỏ (♪)").clicked() {
+                    music_picker_requested = true;
+                    ui.close();
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Chuyển sang @note"))
+                    .clicked()
+                {
+                    let body = ai::note_command(&self.ai_prompt)
+                        .unwrap_or(&self.ai_prompt)
+                        .to_owned();
+                    self.ai_prompt = if body.is_empty() {
+                        "@note ".into()
+                    } else {
+                        format!("@note {body}")
+                    };
+                    self.ai_focus = 1;
+                    ui.close();
+                }
+                if note_mode
+                    && ui
+                        .add_enabled(!busy, egui::Button::new("Về Chat thường"))
+                        .clicked()
+                {
+                    self.ai_prompt = ai::note_command(&self.ai_prompt)
+                        .unwrap_or(&self.ai_prompt)
+                        .to_owned();
+                    self.ai_focus = 1;
+                    ui.close();
+                }
+                ui.separator();
+                if !self.ai_history.is_empty()
+                    && ui
+                        .button(if expanded {
+                            "Thu gọn bong bóng"
+                        } else {
+                            "Mở rộng lịch sử chat"
+                        })
+                        .clicked()
+                {
+                    self.ai_history_expanded = !expanded;
+                    ui.close();
+                }
+                if self.tts_player.is_speaking() && ui.button("Dừng giọng đọc").clicked() {
+                    self.tts_player.stop();
+                    ui.close();
+                }
+                if ui.button("Cài đặt AI").clicked() {
+                    self.settings_open = true;
+                    ui.close();
+                }
+                if ui.button("Đóng thanh chat").clicked() {
+                    open = false;
+                    ui.close();
+                }
+            });
+
+            let right_reserve = if expanded { 76.0 } else { 40.0 };
+            let width = (ui.available_width() - right_reserve).max(1.0);
+            let editor_height = composer_height(&self.ai_prompt, width)
+                .min((ui.available_height() - if expanded { 100.0 } else { 0.0 }).max(32.0));
+            let editor = ui
+                .allocate_ui_with_layout(
+                    Vec2::new(width, editor_height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(width);
+                        egui::ScrollArea::vertical()
+                            .id_salt("ai-composer-scroll")
+                            .max_height(editor_height)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut self.ai_prompt)
+                                        .id_salt("pill-chat-input")
+                                        .frame(egui::Frame::NONE)
+                                        .margin(egui::vec2(0.0, 6.0))
+                                        .font(egui::FontId::proportional(14.0))
+                                        .desired_width(ui.available_width())
+                                        .desired_rows(1)
+                                        .min_size(Vec2::new(0.0, 32.0))
+                                        .lock_focus(true)
+                                        .return_key(egui::KeyboardShortcut::new(
+                                            egui::Modifiers::SHIFT,
+                                            egui::Key::Enter,
+                                        ))
+                                        .hint_text(if note_mode {
+                                            "Mô tả ghi chú hoặc công việc cần AI tạo…"
+                                        } else {
+                                            "Hỏi AI hoặc bắt đầu chat mới…"
+                                        }),
+                                )
+                            })
+                            .inner
+                    },
+                )
+                .inner;
+            editor.context_menu(|ui| {
+                compact_menu(ui);
+                if ui
+                    .add_enabled(
+                        !self.ai_prompt.is_empty(),
+                        egui::Button::new("Sao chép nội dung"),
+                    )
+                    .clicked()
+                {
+                    ctx.copy_text(self.ai_prompt.clone());
+                    ui.close();
+                }
+                if ui.button("Dán").clicked() {
+                    if let Ok(mut clipboard) = arboard::Clipboard::new()
+                        && let Ok(text) = clipboard.get_text()
+                    {
+                        self.ai_prompt.push_str(&text);
+                    }
+                    self.ai_focus = 1;
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(
+                        !self.ai_prompt.is_empty(),
+                        egui::Button::new("Xóa nội dung"),
+                    )
+                    .clicked()
+                {
+                    self.ai_prompt.clear();
+                    ui.close();
+                }
+            });
+            if self.ai_focus > 0 {
+                ui.ctx().send_viewport_cmd(ViewportCommand::Focus);
+                editor.request_focus();
+                self.ai_focus = if editor.has_focus() {
+                    0
+                } else {
+                    self.ai_focus.saturating_sub(1)
+                };
+            }
+
+            if expanded {
+                let attachment_label = if self.ai_attached_files.is_empty() {
+                    "Đính kèm tệp".to_owned()
+                } else {
+                    format!(
+                        "{} tệp đính kèm · chuột phải để gỡ",
+                        self.ai_attached_files.len()
+                    )
+                };
+                let files = theme::icon(ui, Glyph::Attach, &attachment_label, !busy);
+                attach |= files.clicked() && !busy;
+                files.context_menu(|ui| {
+                    compact_menu(ui);
+                    ui.label(format!("{} tệp đính kèm", self.ai_attached_files.len()));
+                    if ui
+                        .add_enabled(
+                            !busy && !self.ai_attached_files.is_empty(),
+                            egui::Button::new("Gỡ tất cả tệp"),
+                        )
+                        .clicked()
+                    {
+                        self.ai_attached_files.clear();
+                        ui.close();
+                    }
+                });
+            }
+
+            let can_send =
+                !busy && (!self.ai_prompt.trim().is_empty() || !self.ai_attached_files.is_empty());
+            if busy {
+                let stop = theme::icon(ui, Glyph::Stop, "Dừng tác vụ · Esc", true);
+                if stop.clicked() {
+                    self.cancel_ai();
+                }
+            } else {
+                let send = send_pill_button(ui, can_send);
+                if can_send && (send.clicked() || (plain_enter && editor.has_focus())) {
+                    self.send_ai_prompt(&ctx);
+                }
+            }
+        });
+
+        if music_picker_requested {
+            self.toggle_ai_music_picker(&ctx);
+        }
+
+        if expanded {
+            ui.separator();
+            let header = ui
+                .horizontal(|ui| {
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new("PentaKuru").small().color(theme::MUTED),
+                        )
+                        .truncate(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if busy && theme::icon(ui, Glyph::Close, "Đóng khung chat", true).clicked()
+                        {
+                            open = false;
+                        }
+                        if !busy && theme::icon(ui, Glyph::Plus, "Hội thoại mới", true).clicked()
+                        {
+                            reset = true;
+                        }
+                        if ui
+                            .small_button("Thu gọn")
+                            .on_hover_text("Thu gọn về bong bóng nổi")
+                            .clicked()
+                        {
+                            self.ai_history_expanded = false;
+                            self.ai_bubble_dismissed = false;
+                        }
+                    });
+                })
+                .response;
+            show_context_menu(&header, egui::Id::new("chat-header-menu"), |ui| {
+                self.chat_menu(ui, &mut open, &mut reset)
+            });
+            egui::ScrollArea::vertical()
+                .id_salt("chat-history")
+                .auto_shrink([false, false])
+                .max_height(ui.available_height().max(1.0))
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    for (index, message) in self.ai_history.iter().enumerate() {
+                        ui.push_id(index, |ui| {
+                            let message_frame = egui::Frame::new()
+                                .fill(if message.role == ai::Role::User {
+                                    theme::SURFACE
+                                } else {
+                                    theme::PANEL
+                                })
+                                .corner_radius(8)
+                                .inner_margin(8)
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    theme::caption(
+                                        ui,
+                                        if message.role == ai::Role::User {
+                                            "Bạn"
+                                        } else {
+                                            "PentaKuru"
+                                        },
+                                    );
+                                    theme::render_markdown(ui, &message.text);
+                                    if message.role == ai::Role::Assistant
+                                        && ui.small_button("Thêm vào ghi chú đang chọn").clicked()
+                                    {
+                                        save_reply = Some(message.text.clone());
+                                    }
+                                    for img in &message.images {
+                                        if let Some(tex) = get_or_load_thumbnail(
+                                            ui.ctx(),
+                                            &mut self.thumbnail_cache,
+                                            img,
+                                        ) {
+                                            ui.add(
+                                                egui::Image::new(&tex)
+                                                    .max_width(ui.available_width().min(320.0))
+                                                    .max_height(130.0)
+                                                    .corner_radius(6),
+                                            );
+                                        }
+                                        if let Some(path) = &img.file_path
+                                            && ui.small_button("Mở ảnh gốc").clicked()
+                                        {
+                                            let _ = system::open(path);
+                                        }
+                                    }
+                                });
+                            show_context_menu(
+                                &message_frame.response,
+                                egui::Id::new(("chat-message-menu", index)),
+                                |ui| {
+                                    compact_menu(ui);
+                                    if ui.button("Sao chép tin nhắn").clicked() {
+                                        ctx.copy_text(message.text.clone());
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .add_enabled(!busy, egui::Button::new("Hội thoại mới"))
+                                        .clicked()
+                                    {
+                                        reset = true;
+                                        ui.close();
+                                    }
+                                },
+                            );
+                        });
+                    }
+                    // Progress belongs to the scrollable content: a long goal or
+                    // model status never takes space from the editor or its controls.
+                    if let Some(status) = &self.ai_status {
+                        if self.ai_job.is_some() {
+                            ui.spinner();
+                        }
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(status).small().color(theme::MUTED),
+                            )
+                            .wrap(),
+                        );
+                    }
+                });
+        }
+
+        (open, reset, attach, save_reply)
+    }
+
     fn chat_menu(&mut self, ui: &mut egui::Ui, open: &mut bool, reset: &mut bool) {
         compact_menu(ui);
-        let busy = self.ai_job.is_some() || self.ui_agent.is_active;
+        let busy = self.ai_job.is_some();
         if busy && ui.button("Dừng tác vụ").clicked() {
             self.cancel_ai();
+            ui.close();
+        }
+        if !self.ai_history.is_empty()
+            && ui
+                .button(if self.ai_history_expanded {
+                    "Thu gọn bong bóng"
+                } else {
+                    "Mở rộng hội thoại"
+                })
+                .clicked()
+        {
+            self.ai_history_expanded = !self.ai_history_expanded;
+            if !self.ai_history_expanded {
+                self.ai_bubble_dismissed = false;
+            }
             ui.close();
         }
         if ui
@@ -1894,12 +3146,311 @@ impl PentaKuru {
         self.ai_prompt.clear();
         self.ai_attached_files.clear();
         self.thumbnail_cache.clear();
-        self.ui_tars_executed_clicks.clear();
-        self.ui_tars_last_screenshot = None;
-        self.ui_agent = ai::UiAgentState::default();
-        self.ai_mode = crate::AiMode::Chat;
+        self.ai_history_expanded = false;
+        self.ai_bubble_dismissed = false;
+        self.tts_player.stop();
         self.ai_focus = 1;
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BubbleTone {
+    Success,
+    Busy,
+    Error,
+}
+
+#[derive(Clone, Copy)]
+enum BubbleIcon {
+    Close,
+    Expand,
+    Stop,
+}
+
+struct BubblePreview {
+    tone: BubbleTone,
+    title: String,
+    body: String,
+    truncated: bool,
+    full_reply: Option<String>,
+}
+
+fn bubble_micro_icon(ui: &mut egui::Ui, kind: BubbleIcon, label: &str) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::click());
+    if response.hovered() {
+        ui.painter().circle_filled(
+            rect.center(),
+            10.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 20),
+        );
+    }
+    let c = rect.center();
+    let color = if response.hovered() {
+        theme::TEXT
+    } else {
+        theme::MUTED
+    };
+    let s = Stroke::new(1.4, color);
+    match kind {
+        BubbleIcon::Close => {
+            ui.painter()
+                .line_segment([c + Vec2::new(-3.5, -3.5), c + Vec2::new(3.5, 3.5)], s);
+            ui.painter()
+                .line_segment([c + Vec2::new(3.5, -3.5), c + Vec2::new(-3.5, 3.5)], s);
+        }
+        BubbleIcon::Expand => {
+            ui.painter()
+                .line_segment([c + Vec2::new(-4.0, 4.0), c + Vec2::new(4.0, -4.0)], s);
+            ui.painter()
+                .line_segment([c + Vec2::new(0.5, -4.0), c + Vec2::new(4.0, -4.0)], s);
+            ui.painter()
+                .line_segment([c + Vec2::new(4.0, -4.0), c + Vec2::new(4.0, -0.5)], s);
+        }
+        BubbleIcon::Stop => {
+            ui.painter()
+                .rect_filled(Rect::from_center_size(c, Vec2::splat(7.0)), 1.5, color);
+        }
+    }
+    response.on_hover_text(label)
+}
+
+fn plus_pill_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    enabled: bool,
+    accented: bool,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::click());
+    let fill = if accented {
+        Color32::from_rgb(34, 65, 54)
+    } else if response.hovered() && enabled {
+        Color32::from_rgba_unmultiplied(255, 255, 255, 28)
+    } else {
+        Color32::from_rgba_unmultiplied(255, 255, 255, 12)
+    };
+    ui.painter().circle_filled(rect.center(), 15.0, fill);
+    let color = if !enabled {
+        theme::MUTED
+    } else if accented {
+        Color32::from_rgb(100, 220, 175)
+    } else {
+        theme::TEXT
+    };
+    theme::draw_icon(ui.painter(), rect.center(), Glyph::Plus, color);
+    response.on_hover_text(label)
+}
+
+fn send_pill_button(ui: &mut egui::Ui, ready: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::click());
+    let fill = if ready {
+        if response.hovered() {
+            Color32::from_rgb(72, 130, 238)
+        } else {
+            Color32::from_rgb(56, 114, 224)
+        }
+    } else {
+        Color32::from_rgb(36, 44, 62)
+    };
+    ui.painter().circle_filled(rect.center(), 15.0, fill);
+    let color = if ready { Color32::WHITE } else { theme::MUTED };
+    theme::draw_icon(ui.painter(), rect.center(), Glyph::Arrow, color);
+    response.on_hover_text(if ready {
+        "Gửi · Enter"
+    } else {
+        "Nhập nội dung để gửi · Esc để đóng"
+    })
+}
+
+fn clean_prompt_title(raw: &str) -> String {
+    let stripped = raw
+        .trim()
+        .trim_start_matches("🤖 **Nhiệm vụ GUI:**")
+        .trim_start_matches("Đồng hồ · Windows:")
+        .trim();
+    let single_line: String = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    if single_line.chars().count() > 54 {
+        let head: String = single_line.chars().take(53).collect();
+        format!("{head}…")
+    } else if single_line.is_empty() {
+        "PentaKuru".into()
+    } else {
+        single_line
+    }
+}
+
+fn compact_bubble_text(text: &str, max_lines: usize, max_chars: usize) -> (String, bool) {
+    let mut lines = Vec::new();
+    let mut in_code = false;
+    let mut truncated = false;
+    for raw in text.lines() {
+        let trimmed = raw.trim();
+        if trimmed.starts_with("```") {
+            in_code = !in_code;
+            if in_code {
+                truncated = true;
+            }
+            continue;
+        }
+        if in_code || trimmed.is_empty() || trimmed == "---" {
+            if in_code {
+                truncated = true;
+            }
+            continue;
+        }
+        let clean = trimmed
+            .trim_start_matches('#')
+            .trim()
+            .replace("**", "")
+            .replace('`', "");
+        if clean.is_empty() {
+            continue;
+        }
+        if lines.len() >= max_lines {
+            truncated = true;
+            break;
+        }
+        lines.push(clean);
+    }
+    let mut joined = lines.join("\n");
+    if joined.chars().count() > max_chars {
+        joined = format!("{}…", joined.chars().take(max_chars).collect::<String>());
+        truncated = true;
+    } else if truncated && !joined.is_empty() && !joined.ends_with('…') {
+        joined.push('…');
+    }
+    (joined, truncated)
+}
+
+#[derive(Clone, Copy)]
+enum MiniBtn {
+    Shuffle,
+    Prev,
+    Next,
+    Repeat,
+    Download,
+    Volume(u8),
+    Queue,
+    Close,
+}
+
+fn mini_media_btn(ui: &mut egui::Ui, kind: MiniBtn, label: &str, active: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
+    let emerald = Color32::from_rgb(16, 185, 129);
+    if active {
+        ui.painter().rect(
+            rect,
+            8,
+            Color32::from_rgba_unmultiplied(16, 185, 129, 32),
+            Stroke::new(1.0, Color32::from_rgba_unmultiplied(16, 185, 129, 130)),
+            egui::StrokeKind::Inside,
+        );
+    } else if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, 8, Color32::from_rgba_unmultiplied(255, 255, 255, 16));
+    }
+    let c = rect.center();
+    let color = if active {
+        Color32::from_rgb(52, 211, 153)
+    } else if response.hovered() {
+        theme::TEXT
+    } else {
+        Color32::from_rgb(190, 195, 204)
+    };
+    let s = Stroke::new(1.5, color);
+    let p = ui.painter();
+    match kind {
+        MiniBtn::Shuffle => {
+            p.line_segment([c + Vec2::new(-6.0, -3.5), c + Vec2::new(-1.0, -3.5)], s);
+            p.line_segment([c + Vec2::new(-1.0, -3.5), c + Vec2::new(2.0, 3.5)], s);
+            p.line_segment([c + Vec2::new(2.0, 3.5), c + Vec2::new(6.0, 3.5)], s);
+            p.line_segment([c + Vec2::new(-6.0, 3.5), c + Vec2::new(-1.0, 3.5)], s);
+            p.line_segment([c + Vec2::new(-1.0, 3.5), c + Vec2::new(2.0, -3.5)], s);
+            p.line_segment([c + Vec2::new(2.0, -3.5), c + Vec2::new(6.0, -3.5)], s);
+            p.line_segment([c + Vec2::new(4.0, -5.5), c + Vec2::new(6.0, -3.5)], s);
+            p.line_segment([c + Vec2::new(4.0, 5.5), c + Vec2::new(6.0, 3.5)], s);
+        }
+        MiniBtn::Prev => {
+            p.line_segment([c + Vec2::new(-5.0, -4.5), c + Vec2::new(-5.0, 4.5)], s);
+            p.add(egui::Shape::convex_polygon(
+                vec![
+                    c + Vec2::new(-3.0, 0.0),
+                    c + Vec2::new(4.5, -4.5),
+                    c + Vec2::new(4.5, 4.5),
+                ],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        MiniBtn::Next => {
+            p.line_segment([c + Vec2::new(5.0, -4.5), c + Vec2::new(5.0, 4.5)], s);
+            p.add(egui::Shape::convex_polygon(
+                vec![
+                    c + Vec2::new(3.0, 0.0),
+                    c + Vec2::new(-4.5, -4.5),
+                    c + Vec2::new(-4.5, 4.5),
+                ],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        MiniBtn::Repeat => {
+            p.line_segment([c + Vec2::new(-5.0, -3.5), c + Vec2::new(5.0, -3.5)], s);
+            p.line_segment([c + Vec2::new(5.0, -3.5), c + Vec2::new(5.0, 0.0)], s);
+            p.line_segment([c + Vec2::new(5.0, 3.5), c + Vec2::new(-5.0, 3.5)], s);
+            p.line_segment([c + Vec2::new(-5.0, 3.5), c + Vec2::new(-5.0, 0.0)], s);
+            p.line_segment([c + Vec2::new(3.0, -5.5), c + Vec2::new(5.0, -3.5)], s);
+            p.line_segment([c + Vec2::new(-3.0, 5.5), c + Vec2::new(-5.0, 3.5)], s);
+        }
+        MiniBtn::Download => {
+            p.line_segment([c + Vec2::new(0.0, -6.0), c + Vec2::new(0.0, 3.0)], s);
+            p.line_segment([c + Vec2::new(-3.5, -0.5), c + Vec2::new(0.0, 3.0)], s);
+            p.line_segment([c + Vec2::new(3.5, -0.5), c + Vec2::new(0.0, 3.0)], s);
+            p.line_segment([c + Vec2::new(-5.5, 5.5), c + Vec2::new(5.5, 5.5)], s);
+        }
+        MiniBtn::Volume(pct) => {
+            p.add(egui::Shape::convex_polygon(
+                vec![
+                    c + Vec2::new(-5.5, -2.5),
+                    c + Vec2::new(-2.2, -2.5),
+                    c + Vec2::new(1.0, -5.2),
+                    c + Vec2::new(1.0, 5.2),
+                    c + Vec2::new(-2.2, 2.5),
+                    c + Vec2::new(-5.5, 2.5),
+                ],
+                color,
+                Stroke::NONE,
+            ));
+            if pct == 0 {
+                let err_s = Stroke::new(1.5, Color32::from_rgb(248, 113, 113));
+                p.line_segment([c + Vec2::new(3.0, -2.8), c + Vec2::new(6.8, 2.8)], err_s);
+                p.line_segment([c + Vec2::new(6.8, -2.8), c + Vec2::new(3.0, 2.8)], err_s);
+            } else {
+                let arc = |r: f32| -> Vec<Pos2> {
+                    (-2..=2)
+                        .map(|k| {
+                            let a = k as f32 * 0.34;
+                            c + Vec2::new(1.2 + a.cos() * r, a.sin() * r)
+                        })
+                        .collect()
+                };
+                p.add(egui::Shape::line(arc(3.0), Stroke::new(1.4, color)));
+                if pct > 55 {
+                    p.add(egui::Shape::line(arc(5.5), Stroke::new(1.4, color)));
+                }
+            }
+        }
+        MiniBtn::Queue => {
+            for y in [-4.0, 0.0, 4.0] {
+                p.line_segment([c + Vec2::new(-5.5, y), c + Vec2::new(5.5, y)], s);
+            }
+        }
+        MiniBtn::Close => {
+            p.line_segment([c + Vec2::new(-4.0, -4.0), c + Vec2::new(4.0, 4.0)], s);
+            p.line_segment([c + Vec2::new(4.0, -4.0), c + Vec2::new(-4.0, 4.0)], s);
+        }
+    }
+    let _ = emerald;
+    response.on_hover_text(label)
 }
 
 // Containers must stay hover-only: upgrading them to click sense after their
@@ -2020,5 +3571,21 @@ mod tests {
         assert_eq!(ai_height(false, 2), 78.0);
         assert_eq!(ai_height(true, 1), 480.0);
         assert_eq!(ai_height(true, 5), 480.0);
+    }
+
+    #[test]
+    fn compact_bubble_text_truncates_utf8_and_code_safely() {
+        let (short, truncated_short) = compact_bubble_text("**Chào anh!**", 4, 220);
+        assert_eq!(short, "Chào anh!");
+        assert!(!truncated_short);
+
+        let long = format!(
+            "# Tiêu đề\n{}\n```rust\nlet x = 1;\n```\nDòng cuối",
+            "Tiếng Việt có dấu rất dài. ".repeat(12)
+        );
+        let (trimmed, truncated_long) = compact_bubble_text(&long, 4, 80);
+        assert!(truncated_long);
+        assert!(trimmed.ends_with('…'));
+        assert!(trimmed.chars().count() <= 81);
     }
 }

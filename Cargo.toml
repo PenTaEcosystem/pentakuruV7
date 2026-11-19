@@ -1,6 +1,6 @@
 [package]
 name = "pentakuru"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.95"
 description = "A monochrome pentagonal desktop companion with notes, search, AI and spell fixing"
@@ -12,7 +12,10 @@ default-members = ["."]
 resolver = "3"
 
 [features]
-default = ["sally-full"]
+default = ["full"]
+full = ["office", "sally-full"]
+lite = ["sally-full"]
+office = []
 sally-full = ["dep:sally-source"]
 
 [build-dependencies]

@@ -343,13 +343,13 @@ mod host {
     }
     pub fn open_web(
         _: &'static str,
-        _: &str,
+        url: &str,
         _: &str,
         _: f64,
         _: f64,
         _: String,
     ) -> Result<(), String> {
-        Err("Khung tích hợp cần bản Windows có WebView2/sally-full.".into())
+        crate::system::open(url)
     }
     pub fn close_web(_: &'static str) -> Result<(), String> {
         Ok(())

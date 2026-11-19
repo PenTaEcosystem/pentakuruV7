@@ -40,6 +40,20 @@ def prop(name, value):
     return p
 
 
+def _soffice_bin():
+    program = Path(sys.executable).parent
+    for cand in (
+        program / "soffice.exe",
+        program / "soffice",
+        program.parent / "MacOS" / "soffice",
+        Path("/Applications/LibreOffice.app/Contents/MacOS/soffice"),
+        Path("/usr/bin/soffice"),
+    ):
+        if cand.is_file():
+            return str(cand)
+    return str(program / ("soffice.exe" if sys.platform == "win32" else "soffice"))
+
+
 def desktop(request):
     local = uno.getComponentContext()
     resolver = local.ServiceManager.createInstanceWithContext(
@@ -53,9 +67,8 @@ def desktop(request):
         # after a failed connection can block waiting for a server indefinitely.
         profile = Path(request["profile"]).resolve()
         profile.mkdir(parents=True, exist_ok=True)
-        program = Path(sys.executable).parent
         subprocess.Popen([
-            str(program / "soffice.exe"),
+            _soffice_bin(),
             "-env:UserInstallation=" + uno.systemPathToFileUrl(str(profile)),
             f"--accept=pipe,name={name};urp;StarOffice.ServiceManager",
             "--norestore", "--nodefault", "--nofirststartwizard"],
@@ -68,9 +81,8 @@ def desktop(request):
             raise ValueError("LibreOffice chưa mở. Bấm file để mở lại phiên.")
         profile = Path(request["profile"]).resolve()
         profile.mkdir(parents=True, exist_ok=True)
-        program = Path(sys.executable).parent
         subprocess.Popen([
-            str(program / "soffice.exe"),
+            _soffice_bin(),
             "-env:UserInstallation=" + uno.systemPathToFileUrl(str(profile)),
             f"--accept=pipe,name={name};urp;StarOffice.ServiceManager",
             "--norestore", "--nodefault", "--nofirststartwizard"],
@@ -154,7 +166,17 @@ def all_units(doc):
         return [(key, shape) for i in range(doc.getDrawPages().getCount())
                 for key, shape in shapes(doc.getDrawPages().getByIndex(i), "slide/" + str(i))
                 if hasattr(shape, "getString")]
-    raise ValueError("AI trực tiếp hiện hỗ trợ Writer và Impress; Calc chỉ mở tài liệu.")
+    if doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+        sheet = doc.getSheets().getByIndex(0)
+        cells = []
+        for r in range(30):
+            for c in range(12):
+                cell = sheet.getCellByPosition(c, r)
+                txt = cell.getString()
+                if txt:
+                    cells.append((f"cell/{r}/{c}", cell))
+        return cells
+    raise ValueError("Tài liệu không hỗ trợ đọc tự động.")
 
 
 def units(doc, selection):
@@ -392,6 +414,379 @@ def align_images(doc, request):
     return mutate(doc, "Căn ảnh", update)
 
 
+def _try_para_style(doc, cursor, names, height, bold=False, align=None, bottom=160, top=0, left=0, first=0):
+    styles = doc.StyleFamilies.getByName("ParagraphStyles")
+    for name in names:
+        if styles.hasByName(name):
+            try:
+                cursor.ParaStyleName = name
+                break
+            except Exception:
+                pass
+    try:
+        cursor.CharHeight = float(height)
+        cursor.CharWeight = 150.0 if bold else 100.0
+        if align is not None:
+            cursor.ParaAdjust = align
+        cursor.ParaTopMargin = int(top)
+        cursor.ParaBottomMargin = int(bottom)
+        cursor.ParaLeftMargin = int(left)
+        cursor.ParaFirstLineIndent = int(first)
+    except Exception:
+        pass
+
+
+def _compose_writer(doc, spec, selection):
+    text = doc.getText()
+    mode = str(spec.get("mode") or "replace").lower()
+    blocks = spec.get("blocks") or []
+    title = str(spec.get("title") or "").strip()
+    subtitle = str(spec.get("subtitle") or "").strip()
+
+    def write_all():
+        changed = 0
+        if mode == "replace" and not selection:
+            text.setString("")
+        cursor = text.createTextCursor()
+        if selection:
+            sel = doc.getCurrentController().getSelection()
+            if sel and hasattr(sel, "getCount") and sel.getCount() > 0:
+                rng = sel.getByIndex(0)
+                cursor = text.createTextCursorByRange(rng.getEnd())
+        else:
+            cursor.gotoEnd(False)
+            if text.getString().strip():
+                text.insertControlCharacter(cursor, 0, False)
+                cursor.gotoEnd(False)
+
+        first_para = not text.getString().strip()
+
+        def next_para():
+            nonlocal first_para
+            if not first_para:
+                text.insertControlCharacter(cursor, 0, False)
+                cursor.gotoEnd(False)
+            first_para = False
+            start = text.createTextCursorByRange(cursor.getEnd())
+            return start
+
+        if title:
+            st = next_para()
+            text.insertString(cursor, title, False)
+            st.gotoRange(cursor.getEnd(), True)
+            _try_para_style(doc, st, ("Title",), 20.0, bold=True, align=3, bottom=140)
+            changed += 1
+        if subtitle:
+            st = next_para()
+            text.insertString(cursor, subtitle, False)
+            st.gotoRange(cursor.getEnd(), True)
+            _try_para_style(doc, st, ("Subtitle",), 12.5, bold=False, align=3, bottom=280)
+            changed += 1
+
+        for block in blocks:
+            btype = str(block.get("type") or "paragraph").lower()
+            if btype == "heading":
+                lvl = int(block.get("level") or 1)
+                lvl = max(1, min(3, lvl))
+                htext = str(block.get("text") or "").strip()
+                if not htext:
+                    continue
+                st = next_para()
+                text.insertString(cursor, htext, False)
+                st.gotoRange(cursor.getEnd(), True)
+                pt = {1: 15.5, 2: 13.5, 3: 12.0}[lvl]
+                _try_para_style(doc, st, (f"Heading {lvl}",), pt, bold=True, top=220, bottom=120)
+                changed += 1
+            elif btype == "bullets":
+                for item in block.get("items") or []:
+                    it = str(item).strip()
+                    if not it:
+                        continue
+                    st = next_para()
+                    text.insertString(cursor, "•  " + it, False)
+                    st.gotoRange(cursor.getEnd(), True)
+                    _try_para_style(doc, st, ("Text body", "Standard"), 11.5, bold=False, bottom=90, left=600, first=-280)
+                    changed += 1
+            elif btype == "table":
+                headers = [str(h) for h in (block.get("headers") or [])]
+                rows = [[str(c) for c in row] for row in (block.get("rows") or [])]
+                cols = max([len(headers)] + [len(r) for r in rows] + [0])
+                total_rows = (1 if headers else 0) + len(rows)
+                if cols > 0 and total_rows > 0:
+                    if not first_para:
+                        text.insertControlCharacter(cursor, 0, False)
+                        cursor.gotoEnd(False)
+                    first_para = False
+                    table = doc.createInstance("com.sun.star.text.TextTable")
+                    table.initialize(total_rows, cols)
+                    text.insertTextContent(cursor, table, False)
+                    cursor.gotoEnd(False)
+                    all_rows = ([headers] if headers else []) + rows
+                    for r_idx, row_vals in enumerate(all_rows):
+                        if headers and r_idx == 0:
+                            try:
+                                table.getRows().getByIndex(0).BackColor = 0xE8EEF5
+                            except Exception:
+                                pass
+                        for c_idx in range(cols):
+                            val = row_vals[c_idx] if c_idx < len(row_vals) else ""
+                            cell = table.getCellByPosition(c_idx, r_idx)
+                            cell.setString(val)
+                            if headers and r_idx == 0:
+                                try:
+                                    cc = cell.createTextCursor()
+                                    cc.gotoStart(False)
+                                    cc.gotoEnd(True)
+                                    cc.CharWeight = 150.0
+                                except Exception:
+                                    pass
+                    changed += 1
+            else:
+                ptext = str(block.get("text") or "").strip()
+                if not ptext:
+                    continue
+                for line in ptext.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    st = next_para()
+                    text.insertString(cursor, line, False)
+                    st.gotoRange(cursor.getEnd(), True)
+                    _try_para_style(doc, st, ("Text body", "Standard"), 11.5, bold=False, bottom=150)
+                    changed += 1
+        return {"changed": changed, "dirty": doc.isModified()}
+
+    return mutate(doc, "AI viết bố cục", write_all)
+
+
+def _format_impress_shape(shape, text_str, size_pt, bold=False, align=0):
+    shape.setString(text_str)
+    try:
+        c = shape.getText().createTextCursor()
+        c.gotoStart(False)
+        c.gotoEnd(True)
+        c.CharHeight = float(size_pt)
+        c.CharWeight = 150.0 if bold else 100.0
+        c.ParaAdjust = align
+    except Exception:
+        pass
+
+
+def _compose_impress(doc, spec):
+    pages = doc.getDrawPages()
+    slides = spec.get("slides") or []
+    mode = str(spec.get("mode") or "replace").lower()
+    if not slides:
+        raise ValueError("AI chưa tạo nội dung slide.")
+
+    def snapshot_pages():
+        snap = []
+        for i in range(pages.getCount()):
+            p = pages.getByIndex(i)
+            items = []
+            for j in range(p.getCount()):
+                sh = p.getByIndex(j)
+                if hasattr(sh, "getString"):
+                    items.append((sh.getString(), sh.getPosition().X, sh.getPosition().Y, sh.getSize().Width, sh.getSize().Height))
+            snap.append(items)
+        return snap
+
+    prev_snap = snapshot_pages()
+
+    def write_deck():
+        start_idx = 0 if mode == "replace" else pages.getCount()
+        while mode == "replace" and pages.getCount() > len(slides) and pages.getCount() > 1:
+            pages.remove(pages.getByIndex(pages.getCount() - 1))
+        for offset, sl in enumerate(slides):
+            idx = start_idx + offset
+            while idx >= pages.getCount():
+                pages.insertNewByIndex(pages.getCount())
+            page = pages.getByIndex(idx)
+            layout = str(sl.get("layout") or "content").lower()
+            try:
+                page.Layout = 0 if layout == "title" else (3 if layout == "two_column" else 1)
+            except Exception:
+                pass
+            for j in range(page.getCount() - 1, -1, -1):
+                try:
+                    page.remove(page.getByIndex(j))
+                except Exception:
+                    pass
+            pw, ph = max(20000, page.Width), max(15000, page.Height)
+            stitle = str(sl.get("title") or "").strip()
+            ssub = str(sl.get("subtitle") or "").strip()
+            bullets = [str(b).strip() for b in (sl.get("bullets") or []) if str(b).strip()]
+
+            def add_box(x, y, w, h, content, pt, bold=False, align=0):
+                sh = doc.createInstance("com.sun.star.drawing.TextShape")
+                page.add(sh)
+                pos = uno.createUnoStruct("com.sun.star.awt.Point")
+                pos.X, pos.Y = int(x), int(y)
+                sz = uno.createUnoStruct("com.sun.star.awt.Size")
+                sz.Width, sz.Height = int(w), int(h)
+                sh.setPosition(pos)
+                sh.setSize(sz)
+                _format_impress_shape(sh, content, pt, bold=bold, align=align)
+
+            if layout == "title":
+                if stitle:
+                    add_box(int(pw * 0.08), int(ph * 0.28), int(pw * 0.84), int(ph * 0.22), stitle, 34.0, bold=True, align=3)
+                if ssub or bullets:
+                    sub_txt = ssub or "\n".join(bullets)
+                    add_box(int(pw * 0.12), int(ph * 0.54), int(pw * 0.76), int(ph * 0.22), sub_txt, 18.0, bold=False, align=3)
+            elif layout == "two_column":
+                if stitle:
+                    add_box(int(pw * 0.06), int(ph * 0.07), int(pw * 0.88), int(ph * 0.14), stitle, 26.0, bold=True, align=0)
+                left_items = [str(b).strip() for b in (sl.get("left_bullets") or bullets[: len(bullets) // 2]) if str(b).strip()]
+                right_items = [str(b).strip() for b in (sl.get("right_bullets") or bullets[len(bullets) // 2 :]) if str(b).strip()]
+                lt = str(sl.get("left_title") or "")
+                rt = str(sl.get("right_title") or "")
+                left_txt = ((lt + "\n") if lt else "") + "\n".join("•  " + b for b in left_items)
+                right_txt = ((rt + "\n") if rt else "") + "\n".join("•  " + b for b in right_items)
+                if left_txt.strip():
+                    add_box(int(pw * 0.06), int(ph * 0.24), int(pw * 0.42), int(ph * 0.66), left_txt, 16.5, bold=False, align=0)
+                if right_txt.strip():
+                    add_box(int(pw * 0.52), int(ph * 0.24), int(pw * 0.42), int(ph * 0.66), right_txt, 16.5, bold=False, align=0)
+            else:
+                if stitle:
+                    add_box(int(pw * 0.06), int(ph * 0.07), int(pw * 0.88), int(ph * 0.15), stitle, 26.0, bold=True, align=0)
+                body_lines = "\n".join("•  " + b for b in bullets) if bullets else ssub
+                if body_lines:
+                    add_box(int(pw * 0.07), int(ph * 0.25), int(pw * 0.86), int(ph * 0.66), body_lines, 18.0, bold=False, align=0)
+
+            notes_txt = str(sl.get("notes") or "").strip()
+            if notes_txt and hasattr(page, "getNotesPage"):
+                try:
+                    npage = page.getNotesPage()
+                    for k in range(npage.getCount()):
+                        nsh = npage.getByIndex(k)
+                        if nsh.supportsService("com.sun.star.presentation.NotesShape") and hasattr(nsh, "setString"):
+                            nsh.setString(notes_txt)
+                            break
+                except Exception:
+                    pass
+        return {"changed": len(slides), "dirty": doc.isModified()}
+
+    def restore_deck():
+        while pages.getCount() > len(prev_snap) and pages.getCount() > 1:
+            pages.remove(pages.getByIndex(pages.getCount() - 1))
+        for i, items in enumerate(prev_snap):
+            while i >= pages.getCount():
+                pages.insertNewByIndex(pages.getCount())
+            p = pages.getByIndex(i)
+            for j in range(p.getCount() - 1, -1, -1):
+                try:
+                    p.remove(p.getByIndex(j))
+                except Exception:
+                    pass
+            for txt, x, y, w, h in items:
+                sh = doc.createInstance("com.sun.star.drawing.TextShape")
+                p.add(sh)
+                pos = uno.createUnoStruct("com.sun.star.awt.Point")
+                pos.X, pos.Y = x, y
+                sz = uno.createUnoStruct("com.sun.star.awt.Size")
+                sz.Width, sz.Height = w, h
+                sh.setPosition(pos)
+                sh.setSize(sz)
+                sh.setString(txt)
+
+    return mutate(doc, "AI tạo slide", write_deck, restore_deck)
+
+
+def _write_calc_cell(cell, val):
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        cell.setValue(float(val))
+        return
+    s = str(val)
+    if s.startswith("="):
+        cell.setFormula(s)
+    else:
+        cell.setString(s)
+
+
+def _compose_calc(doc, spec):
+    sheet = doc.getSheets().getByIndex(0)
+    title = str(spec.get("title") or "").strip()
+    sheet_name = "".join(c for c in str(spec.get("sheet_name") or "").strip() if c not in "[]:*?/\\")[:31].strip()
+    headers = [str(h) for h in (spec.get("headers") or [])]
+    rows = spec.get("rows") or []
+    summary = spec.get("summary_row") or []
+    mode = str(spec.get("mode") or "replace").lower()
+
+    def write_sheet():
+        changed = 0
+        if sheet_name:
+            try:
+                sheet.setName(sheet_name)
+            except Exception:
+                pass
+        if mode == "replace":
+            try:
+                sheet.getCellRangeByPosition(0, 0, 25, 200).clearContents(1 | 2 | 4 | 16 | 32)
+            except Exception:
+                pass
+        r = 0
+        if title:
+            c0 = sheet.getCellByPosition(0, r)
+            c0.setString(title)
+            try:
+                c0.CharHeight = 14.0
+                c0.CharWeight = 150.0
+            except Exception:
+                pass
+            r += 2
+            changed += 1
+        cols = max([len(headers), len(summary)] + [len(row) for row in rows if isinstance(row, list)] + [0])
+        if headers:
+            for c_idx, h in enumerate(headers):
+                cell = sheet.getCellByPosition(c_idx, r)
+                cell.setString(h)
+                try:
+                    cell.CharWeight = 150.0
+                    cell.CellBackColor = 0xE2E8F0
+                except Exception:
+                    pass
+            r += 1
+            changed += 1
+        for row in rows:
+            if not isinstance(row, list):
+                continue
+            for c_idx, val in enumerate(row):
+                _write_calc_cell(sheet.getCellByPosition(c_idx, r), val)
+            r += 1
+            changed += 1
+        if summary:
+            for c_idx, val in enumerate(summary):
+                cell = sheet.getCellByPosition(c_idx, r)
+                _write_calc_cell(cell, val)
+                try:
+                    cell.CharWeight = 150.0
+                    cell.CellBackColor = 0xF1F5F9
+                except Exception:
+                    pass
+            changed += 1
+        for c_idx in range(cols):
+            try:
+                sheet.getColumns().getByIndex(c_idx).OptimalWidth = True
+            except Exception:
+                pass
+        return {"changed": changed, "dirty": doc.isModified()}
+
+    return mutate(doc, "AI viết bảng tính", write_sheet)
+
+
+def compose_doc(doc, request):
+    spec = request.get("spec") or {}
+    selection = bool(request.get("selection", False))
+    if doc.supportsService("com.sun.star.text.TextDocument"):
+        return _compose_writer(doc, spec, selection)
+    if doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+        return _compose_impress(doc, spec)
+    if doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+        return _compose_calc(doc, spec)
+    raise ValueError("Loại tài liệu này chưa hỗ trợ AI viết bố cục.")
+
+
 def execute(request):
     office = desktop(request)
     command = request["command"]
@@ -496,6 +891,8 @@ def execute(request):
         return snapshot(doc, request.get("selection", False))
     if command == "apply":
         return apply(doc, request)
+    if command == "compose":
+        return compose_doc(doc, request)
     if command == "style":
         return style(doc, request)
     if command == "images":

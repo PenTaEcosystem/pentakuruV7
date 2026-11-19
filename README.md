@@ -1,6 +1,11 @@
-# PentaKuru
+# PentaKuru v0.2.0
 
-Windows, Linux và macOS: tải gói của hệ điều hành trong **Actions → Build desktop apps → Artifacts** sau lượt chạy thành công. [Phạm vi chức năng từng nền tảng](docs/PLATFORM-SUPPORT.md).
+Hỗ trợ **Windows**, **macOS (Apple Silicon `arm64` & Intel `x86_64`)** và **Linux** với 2 phiên bản:
+- **PentaKuru Full**: Đầy đủ mọi tính năng, bao gồm tích hợp **Office / LibreOffice** (Writer, Impress, Calc).
+- **PentaKuru Lite**: Phiên bản gọn nhẹ **không có LibreOffice / Office**, giữ lại toàn bộ các tính năng còn lại (Ghi chú & Kanban, Tìm kiếm nhanh, Chat AI, Edge TTS theo chunk, Sửa chính tả, Sally, Penta Music, Penta Clip, Đồng bộ đồng hồ).
+- Đã loại bỏ hoàn toàn **UI-TARS**. Mọi thiết lập nhắc nhở thực hiện trực tiếp qua Chat AI và tự động dừng khi bạn nhắn tin với AI; AI sẽ đọc thông báo bằng giọng Edge TTS khi hoàn thành tác vụ.
+
+Tải bản phát hành mới nhất tại [GitHub Releases](https://github.com/PenTaEcosystem/pentakuruV7/releases/latest). Chi tiết từng nền tảng: [docs/PLATFORM-SUPPORT.md](docs/PLATFORM-SUPPORT.md).
 
 Bạn đồng hành trên desktop, viết bằng **Rust**. Bản tích hợp Sally đầy đủ dùng giấy phép GPL-3.0; thông báo MIT của phần PentaKuru gốc được giữ trong `LICENSE-PENTEYE-MIT`.
 
@@ -89,10 +94,7 @@ Bản kế hoạch bao gồm:
 - Tìm kiếm chỉ mở một thanh 540 × 64 logical pixels khi chưa nhập. Có từ khóa mới hiện tối đa 5 kết quả và tăng chiều cao; xóa từ khóa sẽ thu lại. Dùng ↑/↓, Enter và Esc.
 - AI bắt đầu bằng thanh nhập nhỏ gọn. Enter gửi, Shift+Enter xuống dòng; nội dung nhập dài cuộn bên trong ô, không đẩy nút gửi ra ngoài. Chỉ mở vùng trả lời khi có hội thoại hoặc tác vụ. Nút + tạo hội thoại mới và thu về thanh nhập.
 - Chuột phải trong khung chat để sao chép hội thoại, tạo hội thoại mới, mở cài đặt AI hoặc đóng. Chuột phải trên tin nhắn để sao chép tin nhắn; trong ô nhập để sao chép, dán hoặc xóa nội dung. Menu có đủ không gian ngay cả khi thanh chat đang thu gọn. Esc đóng menu trước, sau đó dừng tác vụ hoặc đóng chat.
-- `@ui mục tiêu` bật điều khiển màn hình; biểu tượng máy ảnh cho biết chế độ này. Tiến trình nằm trong vùng cuộn, số bước và nút dừng luôn hiển thị. Thao tác màn hình chạy trên luồng nền; dừng tác vụ sẽ bỏ kết quả đang chờ và không tiếp tục bước kế tiếp. Một thao tác đã bắt đầu có thể hoàn tất trước khi dừng.
-- `@ui` không giới hạn số bước: tiếp tục cho đến khi mô hình báo kết thúc sau khi kiểm tra kết quả, bạn bấm Dừng/Esc hoặc xảy ra lỗi. Tiến trình hiển thị số bước hiện tại, không có mốc dừng 15 bước.
 - Menu ngữ cảnh chỉ xử lý chuột phải, để ô nhập, chọn văn bản và các nút vẫn nhận chuột trái. Khi tác vụ hoàn tất, dừng hoặc lỗi, chat nhận lại focus để tiếp tục nhập.
-- Chụp màn hình và thao tác `@ui` không ẩn/hiện các cửa sổ PentaKuru ở từng bước. Cửa sổ được loại khỏi ảnh chụp bằng capture affinity; trạng thái cho chuột đi qua được khôi phục sau thao tác. Ngũ giác tiếp tục được vẽ trong lúc tác vụ chạy.
 - Bộ đọc Markdown xử lý dấu `*`, `_` và backtick chưa đóng như văn bản thường, tránh lặp vô hạn; giữ nguyên dấu gạch dưới trong tên tệp và đường dẫn.
 - Khi tác vụ AI thực sự đang chạy, viền khối 3D sáng nhẹ theo nhịp. Khi hoàn tất hoặc lỗi, ánh sáng giảm dần về mức bình thường. Hiệu ứng hoạt động cả khi tạm dừng xoay.
 

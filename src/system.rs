@@ -76,77 +76,6 @@ pub fn data_dir() -> PathBuf {
     fallback
 }
 
-/// Tên thư mục chứa chức năng UI-TARS cạnh file thực thi exe.
-pub const UI_TARS_FOLDER: &str = "ui_tars";
-
-/// Đường dẫn thư mục chức năng UI-TARS (`<exe folder>/ui_tars` hoặc `~/Documents/PentaKuru/ui_tars`).
-pub fn ui_tars_dir() -> PathBuf {
-    if let Some(dir) = portable_exe_dir().map(|dir| dir.join(UI_TARS_FOLDER))
-        && std::fs::create_dir_all(&dir).is_ok()
-        && writable(&dir)
-    {
-        return dir;
-    }
-    let fallback = home_dir()
-        .join("Documents")
-        .join("Penteye")
-        .join(UI_TARS_FOLDER);
-    let _ = std::fs::create_dir_all(&fallback);
-    fallback
-}
-
-/// Tự động cài đặt & khởi tạo cấu trúc thư mục chức năng UI-TARS.
-/// Đảm bảo khi người dùng mở exe, thư mục chức năng ui_tars sẽ xuất hiện sẵn
-/// kèm file hướng dẫn sử dụng chi tiết và các thư mục cần thiết.
-pub fn ensure_ui_tars_environment() -> Result<PathBuf, String> {
-    let base = ui_tars_dir();
-    let screenshots = base.join("screenshots");
-    let logs = base.join("logs");
-    let _ = std::fs::create_dir_all(&screenshots);
-    let _ = std::fs::create_dir_all(&logs);
-
-    let readme = base.join("Huong_dan_su_dung_UI_TARS.txt");
-    if !readme.exists() {
-        let content = "======================================================================\r\n\
-PENTAKURU UI-TARS AGENT - HƯỚNG DẪN SỬ DỤNG VÀ THIẾT LẬP\r\n\
-======================================================================\r\n\r\n\
-1. TỔNG QUAN:\r\n\
-   UI-TARS là trợ lý thị giác AI tự động quan sát màn hình và điều khiển\r\n\
-   chuột/bàn phím để thực hiện các công việc theo yêu cầu của bạn.\r\n\r\n\
-2. BẮT ĐẦU SỬ DỤNG SIÊU NHANH:\r\n\
-   - Bước 1: Mở PentaKuru, nhấn [Alt + Q] để vào Cài đặt.\r\n\
-   - Bước 2: Dán Google Gemini API Key vào mục 'Cấu hình Trợ lý AI'.\r\n\
-     (Key này được dùng chung cho toàn bộ Chat, Sửa chính tả và UI Agent).\r\n\
-   - Bước 3: Nhấn [Alt + A] để mở khung chat PentaKuru.\r\n\
-   - Bước 4: Nhập câu lệnh bắt đầu bằng @ui kèm theo mục tiêu.\r\n\
-     Ví dụ:\r\n\
-     @ui mở Chrome tìm kiếm youtube\r\n\
-     @ui click vào biểu tượng máy tính trên desktop\r\n\
-     @ui gõ văn bản xin chào vào ô đang chọn\r\n\r\n\
-3. PHÍM DỪNG KHẨN CẤP (EMERGENCY STOP):\r\n\
-   Bất kỳ lúc nào bạn muốn dừng tác vụ của AI, chỉ cần nhấn phím [ESC]\r\n\
-   hoặc click nút đỏ [🛑 DỪNG LẠI] trên thanh tiến trình.\r\n\r\n\
-4. CẤU HÌNH MÁY CHỦ RIÊNG (NÂNG CAO):\r\n\
-   Nếu muốn kết nối tới máy chủ ByteDance UI-TARS ngoài (Port 9099 hoặc SiliconFlow),\r\n\
-   bạn có thể mở Cài đặt -> UI-TARS -> mở mục 'Máy chủ riêng'.\r\n\
-======================================================================\r\n";
-        let _ = std::fs::write(readme, content);
-    }
-
-    let config_path = base.join("config.json");
-    if !config_path.exists() {
-        let default_config = r#"{
-  "version": "1.0",
-  "default_engine": "gemini",
-  "auto_screenshot": true,
-  "delay_between_steps_ms": 1500
-}"#;
-        let _ = std::fs::write(config_path, default_config);
-    }
-
-    Ok(base)
-}
-
 fn writable(dir: &Path) -> bool {
     let probe = dir.join(".pentakuru-write-test");
     let ok = std::fs::write(&probe, b"ok").is_ok();
@@ -188,6 +117,7 @@ pub fn focus_window_by_title(title: &str) {
 
 /// Áp dụng Immersive Dark Mode và Alpha Transparency cho cửa sổ OS để tránh chớp trắng.
 /// Office uses a solid, dark native frame without the Windows 11 backdrop.
+#[cfg(feature = "office")]
 pub fn apply_flat_window(title: &str) {
     #[cfg(windows)]
     platform::apply_flat_window(title);
@@ -197,6 +127,14 @@ pub fn apply_flat_window(title: &str) {
 
 pub fn apply_window_dark_and_transparency(title: &str) {
     platform::apply_window_dark_and_transparency(title);
+}
+
+/// Marks a floating overlay viewport as a tool window so it stays hidden from the taskbar and Alt+Tab.
+pub fn apply_tool_window(title: &str) {
+    #[cfg(windows)]
+    platform::apply_tool_window(title);
+    #[cfg(not(windows))]
+    let _ = title;
 }
 
 /// Check if PentaKuru is registered to start automatically with Windows.
@@ -209,7 +147,7 @@ pub fn set_autostart(enable: bool) -> Result<(), String> {
     platform::set_autostart(enable)
 }
 
-/// Chụp toàn bộ màn hình desktop thành dữ liệu ảnh PNG (dành cho UI-TARS và Vision AI).
+/// Chụp toàn bộ màn hình desktop thành dữ liệu ảnh PNG (dành cho Vision AI).
 pub fn remember_external_foreground() {
     platform::remember_external_foreground();
 }
@@ -230,65 +168,9 @@ pub fn check_window_state() -> Result<String, String> {
     platform::check_window_state()
 }
 
+#[cfg(test)]
 pub fn capture_screen_png() -> Result<Vec<u8>, String> {
     platform::capture_screen_png()
-}
-
-/// Chụp màn hình và lưu ra file tạm trong thư mục ui_tars/screenshots.
-pub fn capture_screen_to_temp_file() -> Result<PathBuf, String> {
-    let png_bytes = capture_screen_png()?;
-    let dir = ui_tars_dir().join("screenshots");
-    let _ = std::fs::create_dir_all(&dir);
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let file_path = dir.join(format!("Screen_{now}.png"));
-    std::fs::write(&file_path, &png_bytes)
-        .map_err(|e| format!("Không thể lưu ảnh chụp màn hình: {e}"))?;
-    Ok(file_path)
-}
-
-/// Thực hiện click chuột tại tọa độ (x, y) trên màn hình Windows.
-pub fn execute_click(x: i32, y: i32) -> Result<(), String> {
-    platform::execute_click(x, y)
-}
-
-pub fn execute_double_click(x: i32, y: i32) -> Result<(), String> {
-    platform::execute_double_click(x, y)
-}
-
-pub fn execute_right_click(x: i32, y: i32) -> Result<(), String> {
-    platform::execute_right_click(x, y)
-}
-
-pub fn execute_type_text(text: &str) -> Result<(), String> {
-    platform::execute_type_text(text)
-}
-
-pub fn execute_key_press(key: &str) -> Result<(), String> {
-    platform::execute_key_press(key)
-}
-
-pub fn execute_scroll(amount: i32) -> Result<(), String> {
-    platform::execute_scroll(amount)
-}
-
-/// Called on a worker: OS input helpers include delays and clipboard access.
-pub fn execute_ui_action(action: &crate::ai::UiAgentAction) -> Result<(), String> {
-    use crate::ai::UiAgentAction;
-    match action {
-        UiAgentAction::Click { x, y } => execute_click(*x, *y),
-        UiAgentAction::DoubleClick { x, y } => execute_double_click(*x, *y),
-        UiAgentAction::RightClick { x, y } => execute_right_click(*x, *y),
-        UiAgentAction::Type { text } => execute_type_text(text),
-        UiAgentAction::KeyPress { key } => execute_key_press(key),
-        UiAgentAction::Scroll { amount } => execute_scroll(*amount),
-        UiAgentAction::Finished { .. } => Ok(()),
-        UiAgentAction::Unknown { .. } => {
-            Err("AI trả về thao tác không được hỗ trợ. Hãy thử lại.".into())
-        }
-    }
 }
 
 /// Terminate any existing background instance of PentaKuru to guarantee a clean launch.
@@ -296,10 +178,63 @@ pub fn take_over_single_instance() {
     platform::take_over_single_instance();
 }
 
+/// Seconds since the last OS keyboard or mouse activity (best-effort; 0 if unavailable).
+pub fn last_input_idle_secs() -> u32 {
+    platform::last_input_idle_secs()
+}
+
+/// Title of the active external foreground window (truncated for lightweight context).
+pub fn foreground_window_title() -> Option<String> {
+    platform::foreground_window_title()
+}
+
 /// Vietnamese style `dd/mm/yyyy HH:MM`.
 pub fn format_date(time: SystemTime) -> String {
     let (y, mo, d, h, mi) = local_parts(time);
     format!("{d:02}/{mo:02}/{y} {h:02}:{mi:02}")
+}
+
+/// Civil date `(year, month, day)` to days since 1970-01-01 (Howard Hinnant's algorithm).
+pub fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
+    let y = i64::from(year) - if month <= 2 { 1 } else { 0 };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let m = i64::from(month);
+    let d = i64::from(day);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// Returns `(YYYY-MM-DD, minutes_since_midnight, monday_week_index, unix_secs)`.
+pub fn local_clock_now() -> (String, u32, i64, u64) {
+    let now = SystemTime::now();
+    let unix = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (y, m, d, h, mi) = local_parts(now);
+    let days = days_from_civil(y, m, d);
+    let week_idx = (days + 3).div_euclid(7);
+    (format!("{y:04}-{m:02}-{d:02}"), h * 60 + mi, week_idx, unix)
+}
+
+pub const USER_PROFILE_MAX_CHARS: usize = 1200;
+
+pub fn load_user_profile_at(root: &Path) -> String {
+    std::fs::read_to_string(root.join("user_profile.txt"))
+        .map(|s| s.trim().chars().take(USER_PROFILE_MAX_CHARS).collect())
+        .unwrap_or_default()
+}
+
+pub fn save_user_profile_at(root: &Path, profile: &str) -> Result<(), String> {
+    let _ = std::fs::create_dir_all(root);
+    let trimmed: String = profile
+        .trim()
+        .chars()
+        .take(USER_PROFILE_MAX_CHARS)
+        .collect();
+    std::fs::write(root.join("user_profile.txt"), trimmed).map_err(|e| e.to_string())
 }
 
 /// Lowercase and drop Vietnamese diacritics so "giao an" finds "Giáo án".
@@ -372,9 +307,11 @@ mod platform {
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::process::CommandExt;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowDisplayAffinity,
-        GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsWindow,
-        SetWindowDisplayAffinity, SetWindowLongPtrW, WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED,
+        EnumWindows, GWL_EXSTYLE, GetForegroundWindow, GetWindowDisplayAffinity, GetWindowLongPtrW,
+        GetWindowRect, GetWindowThreadProcessId, IsWindow, IsWindowVisible, SW_HIDE, SW_SHOW,
+        SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+        WDA_EXCLUDEFROMCAPTURE, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
         WS_EX_TRANSPARENT,
     };
     use windows_sys::Win32::{
@@ -577,6 +514,7 @@ mod platform {
         }
     }
 
+    #[cfg(feature = "office")]
     pub fn apply_flat_window(title: &str) {
         use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
         let title_w = wide(title);
@@ -616,6 +554,41 @@ mod platform {
             let hwnd = FindWindowW(std::ptr::null(), title_w.as_ptr());
             if !hwnd.is_null() {
                 apply_to_hwnd(hwnd);
+            }
+        }
+    }
+
+    pub fn apply_tool_window(title: &str) {
+        let title_w = wide(title);
+        unsafe {
+            let hwnd = FindWindowW(std::ptr::null(), title_w.as_ptr());
+            if hwnd.is_null() {
+                return;
+            }
+            apply_to_hwnd(hwnd);
+            if IsWindowVisible(hwnd) == 0 {
+                return;
+            }
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let next = (ex | WS_EX_TOOLWINDOW as isize) & !(WS_EX_APPWINDOW as isize);
+            if next != ex {
+                let was_fg = GetForegroundWindow() == hwnd;
+                // Re-toggling visibility removes any taskbar tab created before WS_EX_TOOLWINDOW.
+                ShowWindow(hwnd, SW_HIDE);
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next);
+                SetWindowPos(
+                    hwnd,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+                ShowWindow(hwnd, if was_fg { SW_SHOW } else { SW_SHOWNOACTIVATE });
+                if was_fg {
+                    SetForegroundWindow(hwnd);
+                }
             }
         }
     }
@@ -767,31 +740,6 @@ mod platform {
                 0
             }
         }
-    }
-
-    fn focus_external_target() -> Result<(), String> {
-        remember_external_foreground();
-        unsafe {
-            let hwnd = GetForegroundWindow();
-            let mut pid = 0;
-            GetWindowThreadProcessId(hwnd, &mut pid);
-            if !hwnd.is_null() && pid != std::process::id() {
-                return Ok(());
-            }
-            let target = LAST_EXTERNAL_WINDOW.load(std::sync::atomic::Ordering::Relaxed)
-                as windows_sys::Win32::Foundation::HWND;
-            let mut target_pid = 0;
-            GetWindowThreadProcessId(target, &mut target_pid);
-            if IsWindow(target) == 0
-                || target_pid == std::process::id()
-                || SetForegroundWindow(target) == 0
-            {
-                return Err(
-                    "Chọn cửa sổ cần điều khiển trước khi yêu cầu AI gõ hoặc nhấn phím.".into(),
-                );
-            }
-        }
-        Ok(())
     }
 
     struct CaptureExclusion {
@@ -1048,119 +996,52 @@ mod platform {
         }
     }
 
-    pub fn execute_click(x: i32, y: i32) -> Result<(), String> {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-        use windows_sys::Win32::UI::WindowsAndMessaging::SetCursorPos;
-
-        let _passthrough = InputPassthrough::at(x, y)?;
-        unsafe {
-            SetCursorPos(x, y);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(30));
-        }
-        Ok(())
-    }
-
-    pub fn execute_double_click(x: i32, y: i32) -> Result<(), String> {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-        use windows_sys::Win32::UI::WindowsAndMessaging::SetCursorPos;
-
-        let _passthrough = InputPassthrough::at(x, y)?;
-        unsafe {
-            SetCursorPos(x, y);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(70));
-            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(30));
-        }
-        Ok(())
-    }
-
-    pub fn execute_right_click(x: i32, y: i32) -> Result<(), String> {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-        use windows_sys::Win32::UI::WindowsAndMessaging::SetCursorPos;
-
-        let _passthrough = InputPassthrough::at(x, y)?;
-        unsafe {
-            SetCursorPos(x, y);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(30));
-        }
-        Ok(())
-    }
-
-    pub fn execute_type_text(text: &str) -> Result<(), String> {
-        if text.is_empty() {
-            return Ok(());
-        }
-        let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-        clipboard.set_text(text).map_err(|e| e.to_string())?;
-
-        focus_external_target()?;
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-        unsafe {
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            keybd_event(VK_CONTROL as u8, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            keybd_event(0x56 /* V */, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            keybd_event(0x56 /* V */, 0, KEYEVENTF_KEYUP, 0);
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-        }
-        Ok(())
-    }
-
-    pub fn execute_key_press(key: &str) -> Result<(), String> {
-        focus_external_target()?;
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-        let vk: u8 = match key.to_lowercase().trim() {
-            "enter" | "return" => VK_RETURN as u8,
-            "tab" => VK_TAB as u8,
-            "escape" | "esc" => VK_ESCAPE as u8,
-            "backspace" => VK_BACK as u8,
-            "delete" | "del" => VK_DELETE as u8,
-            "space" => VK_SPACE as u8,
-            "up" => VK_UP as u8,
-            "down" => VK_DOWN as u8,
-            "left" => VK_LEFT as u8,
-            "right" => VK_RIGHT as u8,
-            "win" | "super" => VK_LWIN as u8,
-            _ => return Ok(()),
+    pub fn last_input_idle_secs() -> u32 {
+        use windows_sys::Win32::System::SystemInformation::GetTickCount64;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut info = LASTINPUTINFO {
+            cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+            dwTime: 0,
         };
+        // SAFETY: `info.cbSize` is initialized cleanly to `size_of::<LASTINPUTINFO>()`.
         unsafe {
-            keybd_event(vk, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            keybd_event(vk, 0, KEYEVENTF_KEYUP, 0);
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            if GetLastInputInfo(&mut info) == 0 {
+                return 0;
+            }
+            let now_ms = GetTickCount64() as u32;
+            now_ms.wrapping_sub(info.dwTime) / 1000
         }
-        Ok(())
     }
 
-    pub fn execute_scroll(amount: i32) -> Result<(), String> {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-        let mut point = windows_sys::Win32::Foundation::POINT::default();
+    pub fn foreground_window_title() -> Option<String> {
         unsafe {
-            GetCursorPos(&mut point);
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_null() {
+                return None;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == std::process::id() {
+                return None;
+            }
+            let mut buf = [0u16; 256];
+            let len = windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW(
+                hwnd,
+                buf.as_mut_ptr(),
+                buf.len() as i32,
+            );
+            if len <= 0 {
+                return None;
+            }
+            let title = String::from_utf16_lossy(&buf[..len as usize]);
+            let clean: String = title.split_whitespace().collect::<Vec<_>>().join(" ");
+            let trimmed = clean.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.chars().take(80).collect())
+            }
         }
-        let _passthrough = InputPassthrough::at(point.x, point.y)?;
-        unsafe {
-            mouse_event(MOUSEEVENTF_WHEEL, 0, 0, amount * 120, 0);
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        Ok(())
     }
 }
 
@@ -1181,26 +1062,39 @@ mod platform {
         Ok(())
     }
     pub fn take_over_single_instance() {}
+    #[cfg(test)]
     pub fn capture_screen_png() -> Result<Vec<u8>, String> {
         Err("Chưa hỗ trợ chụp màn hình trên OS này".into())
     }
-    pub fn execute_click(_x: i32, _y: i32) -> Result<(), String> {
-        Ok(())
+
+    pub fn last_input_idle_secs() -> u32 {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(out) = Command::new("ioreg")
+                .args(["-c", "IOHIDSystem", "-d", "4"])
+                .output()
+                && out.status.success()
+            {
+                let text = String::from_utf8_lossy(&out.stdout);
+                for line in text.lines() {
+                    if line.contains("HIDIdleTime")
+                        && let Some((_, rhs)) = line.split_once('=')
+                        && let Ok(ns) = rhs.trim().parse::<u64>()
+                    {
+                        return (ns / 1_000_000_000).min(u64::from(u32::MAX)) as u32;
+                    }
+                }
+            }
+            0
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            0
+        }
     }
-    pub fn execute_double_click(_x: i32, _y: i32) -> Result<(), String> {
-        Ok(())
-    }
-    pub fn execute_right_click(_x: i32, _y: i32) -> Result<(), String> {
-        Ok(())
-    }
-    pub fn execute_type_text(_text: &str) -> Result<(), String> {
-        Ok(())
-    }
-    pub fn execute_key_press(_key: &str) -> Result<(), String> {
-        Ok(())
-    }
-    pub fn execute_scroll(_amount: i32) -> Result<(), String> {
-        Ok(())
+
+    pub fn foreground_window_title() -> Option<String> {
+        None
     }
 
     fn opener() -> &'static str {
@@ -1381,6 +1275,10 @@ mod tests {
         assert_eq!(civil_from_unix(0), (1970, 1, 1, 0, 0));
         // 2026-10-03 16:24 UTC
         assert_eq!(civil_from_unix(1_791_044_640), (2026, 10, 3, 16, 24));
+        // Monday 2026-11-16 vs Sunday 2026-11-15 belong to adjacent Monday-based weeks.
+        let sun = (days_from_civil(2026, 11, 15) + 3).div_euclid(7);
+        let mon = (days_from_civil(2026, 11, 16) + 3).div_euclid(7);
+        assert_eq!(mon, sun + 1);
         assert_eq!(format_size(512), "512 B");
         assert_eq!(format_size(2048), "2.0 KB");
     }

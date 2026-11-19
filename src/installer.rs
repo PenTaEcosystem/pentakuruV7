@@ -13,9 +13,14 @@ struct Options {
     search: bool,
     spell: bool,
     sally: bool,
-    ui_tars: bool,
+    #[serde(default)]
+    #[cfg_attr(not(feature = "office"), allow(dead_code))]
     writer: bool,
+    #[serde(default)]
+    #[cfg_attr(not(feature = "office"), allow(dead_code))]
     impress: bool,
+    #[serde(default)]
+    #[cfg_attr(not(feature = "office"), allow(dead_code))]
     calc: bool,
     music: bool,
     clip: bool,
@@ -40,12 +45,13 @@ fn apply(path: &Path, prefs: &mut Preferences) -> Result<bool, String> {
     prefs.utilities.enable_search = options.search;
     prefs.utilities.enable_spell = options.spell;
     prefs.utilities.enable_sally = options.sally;
-    prefs.utilities.enable_ui_tars = options.ui_tars;
-    prefs.ui_tars.enabled = options.ui_tars;
-    prefs.office.writer = options.writer;
-    prefs.office.impress = options.impress;
-    prefs.office.calc = options.calc;
-    prefs.utilities.enable_office = options.writer || options.impress || options.calc;
+    #[cfg(feature = "office")]
+    {
+        prefs.office.writer = options.writer;
+        prefs.office.impress = options.impress;
+        prefs.office.calc = options.calc;
+        prefs.utilities.enable_office = options.writer || options.impress || options.calc;
+    }
     prefs.integrations.music = options.music;
     prefs.integrations.clip = options.clip;
     // Expose selected utilities on a fresh PC.
@@ -63,6 +69,7 @@ fn apply(path: &Path, prefs: &mut Preferences) -> Result<bool, String> {
     if options.sally {
         icons.push(Icon::Translate);
     }
+    #[cfg(feature = "office")]
     if prefs.utilities.enable_office {
         icons.push(Icon::Office);
     }
@@ -86,9 +93,13 @@ pub fn apply_installed(prefs: &mut Preferences) -> Result<bool, String> {
 pub fn check_installed(output: &str) {
     let mut prefs = Preferences::default();
     let result = apply_installed(&mut prefs);
+    #[cfg(feature = "office")]
+    let (writer, impress, calc) = (prefs.office.writer, prefs.office.impress, prefs.office.calc);
+    #[cfg(not(feature = "office"))]
+    let (writer, impress, calc) = (false, false, false);
     let report = serde_json::json!({"applied":result.as_ref().copied().unwrap_or(false),
-        "error":result.err(),"utilities":prefs.utilities,"writer":prefs.office.writer,
-        "impress":prefs.office.impress,"calc":prefs.office.calc,
+        "error":result.err(),"utilities":prefs.utilities,"writer":writer,
+        "impress":impress,"calc":calc,
         "music":prefs.integrations.music,"clip":prefs.integrations.clip,
         "dock_icons":prefs.dock_icons});
     let _ = std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap());
@@ -107,7 +118,9 @@ mod tests {
             ..Preferences::default()
         };
         assert!(apply(&path, &mut prefs).unwrap());
-        assert!(prefs.utilities.enable_office && prefs.office.writer && prefs.integrations.music);
+        #[cfg(feature = "office")]
+        assert!(prefs.utilities.enable_office && prefs.office.writer);
+        assert!(prefs.integrations.music);
         assert!(!prefs.utilities.enable_sally);
         assert_eq!(prefs.note, "existing note");
         prefs.integrations.music = false;

@@ -90,7 +90,9 @@ impl PentaKuru {
                 if self.office.chat.len() >= 60 {
                     self.office.chat.remove(0);
                 }
-                self.office.chat.push((false, self.office.status.clone()));
+                let spoken = self.office.status.clone();
+                self.office.chat.push((false, spoken.clone()));
+                self.speak_task_done(ctx, &spoken);
             }
             self.office.discard_reply = false;
         }
@@ -754,9 +756,10 @@ impl PentaKuru {
                         false,
                     );
                     egui::Popup::menu(&response).show(|ui| {
-                        for (i, name) in OFFICE_OPERATIONS.iter().take(4).enumerate() {
+                        for i in [6, 0, 1, 2, 3] {
+                            let name = OFFICE_OPERATIONS[i];
                             if ui
-                                .selectable_value(&mut self.office.operation, i, *name)
+                                .selectable_value(&mut self.office.operation, i, name)
                                 .clicked()
                             {
                                 ui.close();
@@ -785,7 +788,7 @@ impl PentaKuru {
                     ui,
                     format!(
                         "{} · {}",
-                        OFFICE_OPERATIONS[self.office.operation.min(3)],
+                        OFFICE_OPERATIONS[self.office.operation.min(OFFICE_OPERATIONS.len() - 1)],
                         OFFICE_SCOPES[self.office.scope.min(2)]
                     ),
                 );
@@ -868,10 +871,10 @@ impl PentaKuru {
             let cancel = self.office.cancel.clone();
             cancel.store(false, Ordering::Relaxed);
             self.office.status = "Đang chỉnh tài liệu trong LibreOffice…".into();
-            let command = if action < 2 && !prompt.trim().is_empty() {
+            let command = if matches!(action, 0 | 1 | 6) && !prompt.trim().is_empty() {
                 prompt.clone()
             } else {
-                OFFICE_OPERATIONS[action.min(5)].to_owned()
+                OFFICE_OPERATIONS[action.min(OFFICE_OPERATIONS.len() - 1)].to_owned()
             };
             let request = office::EditRequest {
                 paths,
@@ -885,7 +888,7 @@ impl PentaKuru {
             if self.office.chat.len() > 60 {
                 self.office.chat.drain(..self.office.chat.len() - 60);
             }
-            if action < 2 {
+            if matches!(action, 0 | 1 | 6) {
                 self.office.prompt.clear();
             }
             self.office.job = Some(system::Job::spawn(ui.ctx(), move || {
@@ -895,13 +898,14 @@ impl PentaKuru {
     }
 }
 
-const OFFICE_OPERATIONS: [&str; 6] = [
+const OFFICE_OPERATIONS: [&str; 7] = [
     "Sửa chính tả",
     "Nâng cấp bài viết",
     "Căn giữa ảnh",
     "Đổi kiểu chữ",
     "Hoàn tác",
     "Lưu tài liệu",
+    "AI viết & tạo bố cục",
 ];
 const OFFICE_SCOPES: [&str; 3] = ["Vùng đang chọn", "File đang xem", "Các file giao AI"];
 fn office_icon(

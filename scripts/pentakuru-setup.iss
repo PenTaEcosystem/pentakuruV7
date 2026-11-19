@@ -22,7 +22,7 @@
 [Setup]
 AppId={#InstallerId}
 AppName=PentaKuru
-AppVersion=0.1.1
+AppVersion=0.2.0
 AppPublisher=Pentasys
 DefaultDirName={localappdata}\Programs\PentaKuru
 DefaultGroupName=PentaKuru
@@ -116,7 +116,6 @@ Name: "office\impress"; Description: "Impress — PowerPoint, AI chỉnh sửa";
 Name: "office\calc"; Description: "Calc — mở bảng tính Excel"; Flags: disablenouninstallwarning
 Name: "music"; Description: "Penta Music — nhạc, playlist và tìm kiếm"; Flags: disablenouninstallwarning
 Name: "clip"; Description: "Penta Clip — video"; Flags: disablenouninstallwarning
-Name: "uitars"; Description: "UI-TARS — thao tác máy tính bằng AI"; Flags: disablenouninstallwarning
 
 [Tasks]
 Name: "desktopicon"; Description: "Tạo biểu tượng trên Desktop"; Flags: unchecked
@@ -197,7 +196,7 @@ begin
     Plan := '{"schema":1,"installation_id":"' + GetDateTimeString('yyyymmddhhnnsszzz', '-', ':') + '",';
     Plan := Plan + '"notes":' + SelectedBool('notes') + ',"search":' + SelectedBool('search');
     Plan := Plan + ',"spell":' + SelectedBool('spell') + ',"sally":' + SelectedBool('sally');
-    Plan := Plan + ',"ui_tars":' + SelectedBool('uitars') + ',"writer":' + SelectedBool('office\writer');
+    Plan := Plan + ',"writer":' + SelectedBool('office\writer');
     Plan := Plan + ',"impress":' + SelectedBool('office\impress') + ',"calc":' + SelectedBool('office\calc');
     Plan := Plan + ',"music":' + SelectedBool('music') + ',"clip":' + SelectedBool('clip');
     Plan := Plan + '}';

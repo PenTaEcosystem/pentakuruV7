@@ -522,34 +522,6 @@ impl SearchState {
             return;
         }
 
-        let q_trimmed = q.trim();
-        let q_lower = q_trimmed.to_lowercase();
-
-        // Hỗ trợ chế độ UI Agent ngay trong thanh tìm kiếm
-        if q_lower.starts_with("@ui") || q_lower.starts_with("@tars") {
-            let action_text = q_trimmed
-                .trim_start_matches("@ui")
-                .trim_start_matches("@UI")
-                .trim_start_matches("@tars")
-                .trim_start_matches("@TARS")
-                .trim();
-            self.results.push(SearchResult {
-                name: if action_text.is_empty() {
-                    "Chế độ UI Agent: Gõ thao tác (ví dụ: @ui nhấp vào nút Đăng nhập)".into()
-                } else {
-                    format!("Thực thi UI: {action_text}")
-                },
-                path: "Nhấn Enter để chụp màn hình và phân tích thị giác".into(),
-                kind: SearchKind::WebLink,
-                size: "[UI]".into(),
-                size_bytes: 0,
-                modified: "Hành động AI".into(),
-                snippet: Some("Tự động nhận diện giao diện và thực thi click chuột".into()),
-                dup_copies: Vec::new(),
-            });
-            return;
-        }
-
         // Nếu người dùng nhập URL hoặc web link
         if q.starts_with("http://") || q.starts_with("https://") || q.starts_with("www.") {
             let url = if q.starts_with("www.") {

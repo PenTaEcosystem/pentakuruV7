@@ -5,18 +5,69 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
+pub const DEFAULT_MUSIC_MCP_URL: &str = "https://music.pentasys.id.vn/api/mcp/call";
+pub const DEFAULT_CLIP_MCP_URL: &str = "https://clip.pentasys.id.vn/mcp";
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub music: bool,
     pub clip: bool,
+    pub music_mcp_url: String,
+    pub music_mcp_key: String,
+    pub clip_mcp_url: String,
+    pub clip_mcp_key: String,
 }
+
+impl Settings {
+    pub fn resolved_music_url(&self) -> &str {
+        let u = self.music_mcp_url.trim();
+        if u.is_empty() {
+            DEFAULT_MUSIC_MCP_URL
+        } else {
+            u
+        }
+    }
+
+    pub fn resolved_music_key(&self) -> String {
+        let k = self.music_mcp_key.trim();
+        if !k.is_empty() {
+            return k.to_owned();
+        }
+        std::env::var("PENTAKURU_MUSIC_MCP_KEY")
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    }
+
+    pub fn resolved_clip_url(&self) -> &str {
+        let u = self.clip_mcp_url.trim();
+        if u.is_empty() {
+            DEFAULT_CLIP_MCP_URL
+        } else {
+            u
+        }
+    }
+
+    pub fn resolved_clip_key(&self) -> String {
+        let k = self.clip_mcp_key.trim();
+        if !k.is_empty() {
+            return k.to_owned();
+        }
+        std::env::var("PENTAKURU_CLIP_MCP_KEY")
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    }
+}
+
 #[derive(Default)]
 pub struct State {
     pub status: String,
     pub seen_music: bool,
     pub seen_clip: bool,
     pub music_cancel: Arc<AtomicBool>,
+    pub show_mcp_keys: bool,
 }
 pub fn music_script() -> String {
     include_str!("../assets/music-mini.js").to_owned()
@@ -41,6 +92,30 @@ pub fn clip_open() -> Result<(), String> {
         "PentaKuru · Clip",
         480.0,
         420.0,
+        clip_script(),
+    )
+}
+pub fn clip_open_pip(video_id: &str, title: &str) -> Result<(), String> {
+    let clean_id: String = video_id
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if clean_id.is_empty() {
+        return Err("Mã video không hợp lệ.".into());
+    }
+    let url = format!("https://clip.pentasys.id.vn/embed/{clean_id}?autoplay=1");
+    let window_title = if title.trim().is_empty() {
+        "PentaKuru · Clip PiP".to_owned()
+    } else {
+        format!("PentaKuru · {}", title.trim())
+    };
+    crate::sally::launcher::open_web(
+        "penta-clip",
+        &url,
+        &window_title,
+        384.0,
+        216.0,
         clip_script(),
     )
 }

@@ -12,6 +12,27 @@ pub const BORDER: Color32 = Color32::from_rgb(65, 65, 69);
 pub const TEXT: Color32 = Color32::from_rgb(242, 242, 243);
 pub const MUTED: Color32 = Color32::from_rgb(168, 168, 174);
 
+#[cfg(windows)]
+fn system_cjk_fallback_font() -> Option<&'static [u8]> {
+    static FONT: std::sync::OnceLock<Option<Vec<u8>>> = std::sync::OnceLock::new();
+    FONT.get_or_init(|| {
+        for path in [
+            r"C:\Windows\Fonts\YuGothR.ttc",
+            r"C:\Windows\Fonts\YuGothM.ttc",
+            r"C:\Windows\Fonts\meiryo.ttc",
+            r"C:\Windows\Fonts\msgothic.ttc",
+            r"C:\Windows\Fonts\msyh.ttc",
+            r"C:\Windows\Fonts\malgun.ttf",
+        ] {
+            if let Ok(bytes) = std::fs::read(path) {
+                return Some(bytes);
+            }
+        }
+        None
+    })
+    .as_deref()
+}
+
 pub fn install(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Dark);
     let mut fonts = FontDefinitions::default();
@@ -19,12 +40,22 @@ pub fn install(ctx: &egui::Context) {
         "noto-vietnamese".into(),
         FontData::from_static(include_bytes!("../assets/fonts/NotoSans-Regular.ttf")).into(),
     );
-    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+    #[cfg(windows)]
+    let has_cjk = if let Some(bytes) = system_cjk_fallback_font() {
         fonts
-            .families
-            .entry(family)
-            .or_default()
-            .insert(0, "noto-vietnamese".into());
+            .font_data
+            .insert("win-cjk".into(), FontData::from_static(bytes).into());
+        true
+    } else {
+        false
+    };
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        let list = fonts.families.entry(family).or_default();
+        list.insert(0, "noto-vietnamese".into());
+        #[cfg(windows)]
+        if has_cjk {
+            list.push("win-cjk".into());
+        }
     }
     ctx.set_fonts(fonts);
     let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();

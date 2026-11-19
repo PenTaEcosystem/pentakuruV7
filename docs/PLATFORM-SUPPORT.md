@@ -1,21 +1,31 @@
-# Hỗ trợ hệ điều hành
+# Hỗ trợ hệ điều hành & Phiên bản Full / Lite (v0.2.0)
 
-Rust hỗ trợ nhiều nền tảng, nhưng API hệ điều hành và thư viện native cần được build/kiểm tra riêng. GitHub Actions build trên Windows, Ubuntu 24.04 x64 và macOS (kiến trúc của runner macos-latest). Xem mục Artifacts trong lượt chạy thành công ở tab Actions.
+PentaKuru v0.2.0 được tách thành **2 phiên bản** cho cả Windows, macOS (Apple Silicon `arm64` & Intel `x86_64`), và Linux:
+- **PentaKuru Full** (`cargo build --release --locked`): Đầy đủ mọi tính năng, bao gồm **Office (LibreOffice Writer / Impress / Calc)**.
+- **PentaKuru Lite** (`cargo build --release --locked --no-default-features --features lite`): Gọn nhẹ, **không bao gồm LibreOffice / Office**, giữ nguyên toàn bộ các tính năng còn lại (Ghi chú & Kanban, Tìm kiếm nhanh, Chat AI, Edge TTS theo chunk, Sửa chính tả, Sally, Penta Music, Penta Clip, Đồng bộ đồng hồ).
+- **UI-TARS** đã được loại bỏ hoàn toàn ở cả 2 phiên bản.
 
-| Thành phần | Windows | Linux/macOS |
-|---|---|---|
-| Giao diện lõi, ghi chú, tìm file, chat AI | Có | Có mã triển khai; CI kiểm tra và build |
-| Đồng hồ: HTTP/BLE bridge và chat | Có | Có mã dùng chung; cần kiểm tra thực tế với thiết bị |
-| Sally nhúng, khung Music/Clip | WebView2 | Chưa port khung nhúng |
-| Office Writer/Impress/Calc qua UNO | Có | Bridge hiện tìm soffice.exe/python.exe; chưa port |
-| Chụp màn hình/thao tác AI/tự khởi động | API Windows | Chưa triển khai; không coi build thành công là có các chức năng này |
+| Thành phần | Windows | macOS (arm64 / x86_64) | Linux (x86_64) |
+|---|---|---|---|
+| Giao diện lõi 3D, Ghi chú & Kanban, Tìm file, Chat AI | Có | Có | Có |
+| Giọng đọc AI Edge TTS theo chunk & Thông báo xong tác vụ | Có (loopback + MediaPlayer) | Có (native `afplay`) | Có (`ffplay`/`mpv`/`mpg123`) |
+| Nhắc nhở qua Chat AI (tự dừng khi nhắn tin AI) | Có | Có (nhịp làm việc qua `ioreg`) | Có |
+| Penta Music Mini Player (MCP) | Có (MediaPlayer) | Có (`curl` + `afplay`) | Mở trình duyệt / MCP |
+| Penta Music / Clip Web & Sally | WebView2 nhúng | Mở trình duyệt hệ thống / Sally | Mở trình duyệt hệ thống |
+| Office Writer/Impress/Calc (chỉ bản Full) | Có (LibreOffice Windows) | Có (`/Applications/LibreOffice.app`) | Có (`/usr/bin/soffice`) |
+| Đồng hồ Amazfit HTTP bridge | Có | Có | Có |
 
-Linux: gói tar.gz chứa binary, icon, giấy phép và hướng dẫn. Cần desktop X11/Wayland, OpenGL, ALSA, xdg-open; hộp chọn file dùng zenity. Build Ubuntu cần pkg-config, libasound2-dev, libdbus-1-dev và các thư viện X11/Wayland/OpenGL trong workflow.
+## Hướng dẫn macOS
+- Tải `.dmg` đúng chip máy (**`arm64`** cho Apple Silicon M1/M2/M3/M4, **`x86_64`** cho Mac Intel) và chọn **Full** hoặc **Lite**.
+- Kéo `PentaKuru Full.app` hoặc `PentaKuru Lite.app` vào thư mục `Applications`.
+- Bundle được ký ad-hoc (chưa Apple notarized). Nếu macOS cảnh báo lần đầu mở, nhấp chuột phải → **Open**, hoặc chạy trong Terminal:
+  ```sh
+  xattr -cr "/Applications/PentaKuru Full.app"
+  ```
+- Bản Full tự động tìm LibreOffice tại `/Applications/LibreOffice.app` (cần cài đặt LibreOffice nếu dùng tính năng Office).
 
-macOS: gói .dmg và .tar.gz chứa PentaKuru.app. Bundle được ký ad-hoc để kiểm tra cấu trúc, chưa có chứng chỉ Developer ID hoặc notarization của Apple. Dữ liệu tiếp tục dùng thư mục Penteye Notes tương thích với bản trước. Gói ghi rõ kiến trúc để chọn đúng máy.
+## Hướng dẫn Windows & Linux
+- **Windows**: Giải nén `PentaKuru-Full-Windows-x64.zip` hoặc `PentaKuru-Lite-Windows-x64.zip` và chạy trực tiếp file `.exe`.
+- **Linux**: Giải nén `PentaKuru-Full-Linux-x86_64.tar.gz` hoặc `PentaKuru-Lite-Linux-x86_64.tar.gz` (cần desktop X11/Wayland, OpenGL, ALSA, `xdg-open`, và `ffplay`/`mpv`/`mpg123` để phát Edge TTS).
 
-Windows: gói ZIP chứa EXE; bộ cài Inno Setup được build riêng bằng scripts/package-installer.ps1.
-
-Build thành công chỉ xác nhận biên dịch, kiểm tra tự động và đóng gói. Chưa có kiểm tra sử dụng thực tế Linux/macOS và chưa cam kết mọi tiện ích ngang với Windows.
-
-CI và local cố định Rust 1.96.0 qua rust-toolchain.toml. Kiểm tra Clippy vẫn giữ -D warnings trên cả ba hệ điều hành.
+CI cố định Rust `1.96.0` qua `rust-toolchain.toml`, chạy `cargo fmt --check`, `cargo test --locked`, và `cargo clippy --locked --all-targets -- -D warnings` cho cả **Full** và **Lite** trên Windows, Ubuntu 24.04, macOS Apple Silicon (`macos-latest`), và macOS Intel (`macos-15-intel`).

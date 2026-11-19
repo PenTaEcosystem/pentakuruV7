@@ -40,7 +40,12 @@
      }else if(command.action!=='play'){throw Error('Lệnh Music không được hỗ trợ.');}
      if(target){target.click();}
      else if(!playing()){
-      const control=engines().some(audio=>audio.currentSrc||audio.getAttribute('src'))?document.getElementById('btn-play-pause'):document.querySelector('#tracks-grid .track-card');
+      const findPlayable=()=>engines().some(audio=>audio.currentSrc||audio.getAttribute('src'))?document.getElementById('btn-play-pause'):document.querySelector('#tracks-grid .track-card, #hero-quick-chips [data-track-id], #hero-quick-chips button, #recommended-list [data-track-id], #recommended-list > *:not(.rec-skeleton), #btn-action-play');
+      let control=findPlayable();
+      if(!control){
+       const waitUntil=Date.now()+4000;
+       while(!control&&Date.now()<waitUntil){if(status.cancelled)throw Error('Đã dừng lệnh Music.');await new Promise(resolve=>setTimeout(resolve,150));control=findPlayable();}
+      }
       if(!control)throw Error('Chưa có bài để phát. Anh hãy nhắn “tìm bài hát + tên bài” hoặc chọn một bài trong Penta Music.');
       control.click();
      }

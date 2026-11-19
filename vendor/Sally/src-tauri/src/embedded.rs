@@ -127,15 +127,25 @@ pub fn run(
                                     while handle.get_webview_window(label).is_some(){if std::time::Instant::now()>deadline{return Err("Khung đang đóng; thử mở lại.".into());}std::thread::sleep(std::time::Duration::from_millis(20));}
                                 }
                                 if let Some(window)=handle.get_webview_window(label){
+                                    if window.url().ok().as_ref() != Some(&parsed) {
+                                        let _ = window.navigate(parsed);
+                                    }
+                                    let _ = window.set_title(&title);
+                                    let _ = window.set_size(tauri::LogicalSize::new(width, height));
                                     window.show().and_then(|_|window.unminimize()).and_then(|_|window.set_focus()).map_err(|e|e.to_string())?;
                                 }else{
                                     let scheme=parsed.scheme().to_owned();let port=parsed.port_or_known_default();
                                     let base=if std::env::args().any(|arg|arg=="--web-integration-check"){std::env::current_dir().map_err(|e|e.to_string())?.join(".build/web-integration-data")}else{handle.path().app_data_dir().map_err(|e|e.to_string())?};
                                     let directory=base.join("integrations").join(label);
                                     std::fs::create_dir_all(&directory).map_err(|e|e.to_string())?;
+                                    let min_size = if label == "penta-clip" && width <= 420.0 && height <= 260.0 {
+                                        (280.0, 160.0)
+                                    } else {
+                                        (360.0, 260.0)
+                                    };
                                     tauri::WebviewWindowBuilder::new(&handle,label,tauri::WebviewUrl::External(parsed))
-                                        .title(title).inner_size(width,height).min_inner_size(360.0,260.0).resizable(true)
-                                        .always_on_top(label=="penta-music").data_directory(directory)
+                                        .title(title).inner_size(width,height).min_inner_size(min_size.0,min_size.1).resizable(true)
+                                        .always_on_top(label=="penta-music"||label=="penta-clip").data_directory(directory)
                                         .initialization_script(&script)
                                         .on_navigation(move|next|next.host_str()==Some(&host)&&next.scheme()==scheme&&next.port_or_known_default()==port)
                                         .build().map_err(|e|e.to_string())?;

@@ -265,7 +265,8 @@ fn route_request(
             let resp = json!({
                 "status": "ok",
                 "app": "PentaKuru",
-                "version": "0.1.0",
+                "version": env!("CARGO_PKG_VERSION"),
+                "edition": if cfg!(feature = "office") { "full" } else { "lite" },
                 "watch_protocol": 2,
                 "windows_control": true,
                 "windows_ready": st.control.ready,

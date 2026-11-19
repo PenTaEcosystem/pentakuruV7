@@ -9,14 +9,178 @@ const COLUMNS: [(&str, &str); 3] = [
     ("done", "Hoàn tất"),
 ];
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduleKind {
+    #[default]
+    None,
+    Daily,
+    Weekly,
+}
+
+impl ScheduleKind {
+    pub fn from_str_lossy(raw: &str) -> Self {
+        let lower = raw.trim().to_lowercase();
+        if matches!(
+            lower.as_str(),
+            "daily" | "mỗi ngày" | "hang ngay" | "hằng ngày"
+        ) {
+            Self::Daily
+        } else if matches!(
+            lower.as_str(),
+            "weekly" | "mỗi tuần" | "hang tuan" | "hằng tuần"
+        ) {
+            Self::Weekly
+        } else {
+            Self::None
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Default)]
+#[serde(default)]
 pub struct Card {
     pub id: String,
     pub title: String,
     pub note: String,
     pub status: String,
-    #[serde(default)]
     pub archived: bool,
+    pub schedule: ScheduleKind,
+    pub remind_enabled: bool,
+    pub due_at: String,
+    pub remind_interval_mins: u32,
+    pub weekly_target: u8,
+    pub completed_dates: Vec<String>,
+    pub last_completed_date: String,
+    pub last_completed_week: i64,
+    pub last_reminded_unix: u64,
+    pub next_week_command: String,
+    pub week_cycle: u32,
+    pub note_id: Option<String>,
+}
+
+/// Parses `"HH:MM"`, `"HHhMM"`, `"YYYY-MM-DD HH:MM"`, `"DD/MM/YYYY HH:MM"`, or `"YYYY-MM-DD"`.
+pub fn parse_due_time(raw: &str) -> Option<(Option<String>, u32)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parse_hm = |part: &str| -> Option<u32> {
+        let norm = part.trim().replace(['h', 'H'], ":");
+        let (h_s, m_s) = norm.split_once(':')?;
+        let h: u32 = h_s.trim().parse().ok()?;
+        let m: u32 = if m_s.trim().is_empty() {
+            0
+        } else {
+            m_s.trim().parse().ok()?
+        };
+        (h < 24 && m < 60).then_some(h * 60 + m)
+    };
+    let normalize_date = |part: &str| -> Option<String> {
+        let p = part.trim();
+        let segs: Vec<&str> = p.split(['-', '/']).collect();
+        if segs.len() != 3 {
+            return None;
+        }
+        if segs[0].len() == 4 {
+            let y: u32 = segs[0].parse().ok()?;
+            let m: u32 = segs[1].parse().ok()?;
+            let d: u32 = segs[2].parse().ok()?;
+            (y >= 2020 && (1..=12).contains(&m) && (1..=31).contains(&d))
+                .then(|| format!("{y:04}-{m:02}-{d:02}"))
+        } else if segs[2].len() == 4 {
+            let d: u32 = segs[0].parse().ok()?;
+            let m: u32 = segs[1].parse().ok()?;
+            let y: u32 = segs[2].parse().ok()?;
+            (y >= 2020 && (1..=12).contains(&m) && (1..=31).contains(&d))
+                .then(|| format!("{y:04}-{m:02}-{d:02}"))
+        } else {
+            None
+        }
+    };
+    if let Some((a, b)) = trimmed.split_once(' ').or_else(|| trimmed.split_once('T')) {
+        if let (Some(d), Some(hm)) = (normalize_date(a), parse_hm(b)) {
+            return Some((Some(d), hm));
+        }
+        if let (Some(hm), Some(d)) = (parse_hm(a), normalize_date(b)) {
+            return Some((Some(d), hm));
+        }
+    }
+    if let Some(hm) = parse_hm(trimmed) {
+        return Some((None, hm));
+    }
+    if let Some(d) = normalize_date(trimmed) {
+        return Some((Some(d), 9 * 60));
+    }
+    None
+}
+
+impl Card {
+    pub fn is_completed_today(&self, today: &str) -> bool {
+        self.status == "done"
+            || (self.schedule != ScheduleKind::None && self.last_completed_date == today)
+    }
+
+    pub fn mark_done(&mut self, today: &str, week_idx: i64) {
+        self.status = "done".into();
+        if self.schedule != ScheduleKind::None {
+            if self.last_completed_week != 0 && self.last_completed_week != week_idx {
+                self.completed_dates.clear();
+                self.week_cycle += 1;
+            }
+            if !self.completed_dates.iter().any(|d| d == today) {
+                self.completed_dates.push(today.to_owned());
+            }
+            self.last_completed_date = today.to_owned();
+            self.last_completed_week = week_idx;
+        } else {
+            self.last_completed_date = today.to_owned();
+            self.remind_enabled = false;
+        }
+    }
+
+    pub fn cancel_schedule(&mut self) {
+        self.schedule = ScheduleKind::None;
+        self.remind_enabled = false;
+        self.due_at.clear();
+        self.remind_interval_mins = 0;
+        self.next_week_command.clear();
+    }
+
+    pub fn schedule_badge(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        match self.schedule {
+            ScheduleKind::Daily => {
+                let target = self.weekly_target.max(7);
+                parts.push(format!("Daily {}/{}", self.completed_dates.len(), target));
+            }
+            ScheduleKind::Weekly => {
+                let target = self.weekly_target.max(1);
+                parts.push(format!("Tuần {}/{}", self.completed_dates.len(), target));
+            }
+            ScheduleKind::None => {}
+        }
+        if !self.due_at.trim().is_empty() {
+            parts.push(format!("Hạn {}", self.due_at.trim()));
+        }
+        if self.remind_enabled && self.remind_interval_mins > 0 {
+            parts.push(format!("Nhắc {}p", self.remind_interval_mins));
+        } else if self.remind_enabled && parts.is_empty() {
+            parts.push("Có nhắc".into());
+        }
+        (!parts.is_empty()).then(|| parts.join(" · "))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WeeklyRollover {
+    pub card_id: String,
+    pub title: String,
+    pub note_id: Option<String>,
+    pub done_count: usize,
+    pub weekly_target: u8,
+    pub next_week_command: String,
+    pub next_week_cycle: u32,
 }
 
 fn card_content(card: &Card) -> String {
@@ -94,7 +258,7 @@ impl Board {
             Err(error) => Err(error.to_string()),
         }
     }
-    fn save(&self, root: &Path) -> Result<(), String> {
+    pub fn save(&self, root: &Path) -> Result<(), String> {
         let bytes = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -124,13 +288,19 @@ impl Board {
             note,
             status: "todo".into(),
             archived: false,
+            ..Default::default()
         });
         Ok(id)
     }
     fn apply(&mut self, operation: Request) -> Result<Option<(String, String)>, String> {
+        let (today, _, week_idx, _) = crate::system::local_clock_now();
         match operation {
             Request::Create { title, content } => {
-                self.create(title, content)?;
+                let id = self.create(title, content)?;
+                if let Some(card) = self.cards.iter_mut().find(|c| c.id == id) {
+                    card.last_completed_week = week_idx;
+                    card.week_cycle = 1;
+                }
             }
             Request::FromNote {
                 note_id,
@@ -146,9 +316,14 @@ impl Board {
                     card.title = title;
                     card.note = content;
                     card.archived = false;
+                    card.note_id = Some(note_id.clone());
                     card.id.clone()
                 } else {
-                    self.create(title, content)?
+                    let id = self.create(title, content)?;
+                    if let Some(card) = self.cards.iter_mut().find(|c| c.id == id) {
+                        card.note_id = Some(note_id.clone());
+                    }
+                    id
                 };
                 return Ok(Some((note_id, id)));
             }
@@ -163,6 +338,12 @@ impl Board {
                     .ok_or("Không tìm thấy thẻ.")?;
                 card.title = updated.title.trim().into();
                 card.note = updated.note;
+                card.schedule = updated.schedule;
+                card.due_at = updated.due_at.trim().to_owned();
+                card.remind_interval_mins = updated.remind_interval_mins;
+                card.remind_enabled = updated.remind_enabled;
+                card.weekly_target = updated.weekly_target;
+                card.next_week_command = updated.next_week_command.trim().to_owned();
             }
             Request::Move { card_id, status } => {
                 if !COLUMNS.iter().any(|(value, _)| *value == status) {
@@ -173,7 +354,15 @@ impl Board {
                     .iter_mut()
                     .find(|card| card.id == card_id)
                     .ok_or("Không tìm thấy thẻ.")?;
-                card.status = status;
+                if status == "done" {
+                    card.mark_done(&today, week_idx);
+                } else {
+                    card.status = status;
+                    if card.schedule != ScheduleKind::None && card.last_completed_date == today {
+                        card.last_completed_date.clear();
+                        card.completed_dates.retain(|d| d != &today);
+                    }
+                }
             }
             Request::Archive { card_id, archived } => {
                 self.cards
@@ -200,72 +389,335 @@ impl Board {
         (todo + doing + done, todo, doing, done)
     }
 
+    /// Context for AI prompts: strictly excludes completed (`done` / completed-today) and archived tasks.
     pub fn ai_context_summary(&self) -> String {
-        let (total, todo, doing, done) = self.stats();
-        if total == 0 {
-            return "Chưa có công việc nào trong Kanban.".into();
+        let (today, _, _, _) = crate::system::local_clock_now();
+        let mut pending_todo = Vec::new();
+        let mut pending_doing = Vec::new();
+        for card in self
+            .cards
+            .iter()
+            .filter(|c| !c.archived && !c.is_completed_today(&today))
+        {
+            if card.status == "doing" {
+                pending_doing.push(card);
+            } else {
+                pending_todo.push(card);
+            }
+        }
+        let pending_total = pending_todo.len() + pending_doing.len();
+        if pending_total == 0 {
+            return "Hiện không còn công việc nào chưa hoàn thành (các việc đã xong không gửi lên AI).".into();
         }
         let mut out = format!(
-            "Thống kê công việc Kanban: Tổng {total} việc (Cần làm: {todo}, Đang làm: {doing}, Hoàn tất: {done}).\n"
+            "Công việc chưa hoàn thành hôm nay: {pending_total} việc (Cần làm: {}, Đang làm: {}).\n",
+            pending_todo.len(),
+            pending_doing.len()
         );
-        for (status_key, status_label) in COLUMNS {
-            let items: Vec<_> = self
-                .cards
-                .iter()
-                .filter(|c| !c.archived && c.status == status_key)
-                .collect();
-            if !items.is_empty() {
-                out.push_str(&format!("- {status_label}:\n"));
-                for card in items.into_iter().take(25) {
-                    let desc: String = card
-                        .note
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                        .chars()
-                        .take(80)
-                        .collect();
-                    if desc.trim().is_empty() {
-                        out.push_str(&format!("  • {}\n", card.title));
-                    } else {
-                        out.push_str(&format!("  • {}: {}\n", card.title, desc.trim()));
-                    }
+        for (status_label, items) in [("Cần làm", pending_todo), ("Đang làm", pending_doing)] {
+            if items.is_empty() {
+                continue;
+            }
+            out.push_str(&format!("- {status_label}:\n"));
+            for card in items.into_iter().take(25) {
+                let desc: String = card
+                    .note
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .chars()
+                    .take(80)
+                    .collect();
+                let badge = card
+                    .schedule_badge()
+                    .map(|b| format!(" [{b}]"))
+                    .unwrap_or_default();
+                if desc.trim().is_empty() {
+                    out.push_str(&format!("  • {}{badge}\n", card.title));
+                } else {
+                    out.push_str(&format!("  • {}{badge}: {}\n", card.title, desc.trim()));
                 }
             }
         }
         out
     }
 
+    /// Reopens `Daily`/`Weekly` tasks on a new day/week and emits `WeeklyRollover` when a week finishes.
+    pub fn rollover_schedules(
+        &mut self,
+        today: &str,
+        week_idx: i64,
+    ) -> (bool, Vec<WeeklyRollover>) {
+        let mut changed = false;
+        let mut rollovers = Vec::new();
+        for card in self.cards.iter_mut().filter(|c| !c.archived) {
+            match card.schedule {
+                ScheduleKind::Daily => {
+                    let week_changed =
+                        card.last_completed_week != 0 && week_idx != card.last_completed_week;
+                    if week_changed {
+                        let done_count = card.completed_dates.len();
+                        let target = card.weekly_target.max(7);
+                        if done_count > 0 && !card.next_week_command.trim().is_empty() {
+                            card.week_cycle = card.week_cycle.max(1) + 1;
+                            rollovers.push(WeeklyRollover {
+                                card_id: card.id.clone(),
+                                title: card.title.clone(),
+                                note_id: card.note_id.clone(),
+                                done_count,
+                                weekly_target: target,
+                                next_week_command: card.next_week_command.clone(),
+                                next_week_cycle: card.week_cycle,
+                            });
+                        } else if done_count > 0 {
+                            card.week_cycle = card.week_cycle.max(1) + 1;
+                        }
+                        card.completed_dates.clear();
+                        card.last_completed_week = week_idx;
+                        card.status = "todo".into();
+                        changed = true;
+                    } else if card.status == "done" && card.last_completed_date != today {
+                        card.status = "todo".into();
+                        changed = true;
+                    }
+                }
+                ScheduleKind::Weekly => {
+                    if card.last_completed_week != 0 && week_idx != card.last_completed_week {
+                        let done_count = card.completed_dates.len();
+                        let target = card.weekly_target.max(1);
+                        if done_count > 0 && !card.next_week_command.trim().is_empty() {
+                            card.week_cycle = card.week_cycle.max(1) + 1;
+                            rollovers.push(WeeklyRollover {
+                                card_id: card.id.clone(),
+                                title: card.title.clone(),
+                                note_id: card.note_id.clone(),
+                                done_count,
+                                weekly_target: target,
+                                next_week_command: card.next_week_command.clone(),
+                                next_week_cycle: card.week_cycle,
+                            });
+                        }
+                        card.completed_dates.clear();
+                        card.last_completed_week = week_idx;
+                        if card.status == "done" {
+                            card.status = "todo".into();
+                        }
+                        changed = true;
+                    }
+                }
+                ScheduleKind::None => {}
+            }
+        }
+        (changed, rollovers)
+    }
+
+    /// Returns card indices that are currently due for reminder based on flexible per-card timing.
+    pub fn due_reminder_cards(
+        &self,
+        today: &str,
+        now_hm: u32,
+        now_unix: u64,
+        default_interval_mins: u32,
+        is_startup: bool,
+    ) -> Vec<usize> {
+        let mut due = Vec::new();
+        for (idx, card) in self.cards.iter().enumerate() {
+            if card.archived || !card.remind_enabled || card.is_completed_today(today) {
+                continue;
+            }
+            if is_startup {
+                if now_unix.saturating_sub(card.last_reminded_unix) >= 300 {
+                    due.push(idx);
+                }
+                continue;
+            }
+            if let Some((due_ymd, due_hm)) = parse_due_time(&card.due_at) {
+                let date_reached = due_ymd.as_deref().is_none_or(|d| d <= today);
+                if !date_reached {
+                    continue;
+                }
+                let past_earlier_day = due_ymd.as_deref().is_some_and(|d| d < today);
+                let approaching = past_earlier_day || now_hm >= due_hm.saturating_sub(15);
+                if approaching {
+                    let cooldown = card.remind_interval_mins.max(default_interval_mins).max(20);
+                    if now_unix.saturating_sub(card.last_reminded_unix) >= u64::from(cooldown) * 60
+                    {
+                        due.push(idx);
+                    }
+                } else if card.remind_interval_mins > 0
+                    && now_unix.saturating_sub(card.last_reminded_unix)
+                        >= u64::from(card.remind_interval_mins) * 60
+                {
+                    due.push(idx);
+                }
+            } else {
+                let eff_mins = if card.remind_interval_mins > 0 {
+                    card.remind_interval_mins
+                } else {
+                    default_interval_mins
+                };
+                if eff_mins > 0
+                    && now_unix.saturating_sub(card.last_reminded_unix) >= u64::from(eff_mins) * 60
+                {
+                    due.push(idx);
+                }
+            }
+        }
+        due
+    }
+
+    pub fn cancel_matching_schedules(&mut self, query: &str) -> usize {
+        let q = crate::system::fold(query.trim());
+        let cancel_all = q.is_empty() || matches!(q.as_str(), "all" | "tat ca" | "moi lich");
+        let mut count = 0;
+        for card in &mut self.cards {
+            if card.archived || (card.schedule == ScheduleKind::None && !card.remind_enabled) {
+                continue;
+            }
+            let title_match = cancel_all || crate::system::matches_terms(&card.title, &q);
+            let note_match = !cancel_all && crate::system::matches_terms(&card.note, &q);
+            if title_match || note_match {
+                card.cancel_schedule();
+                count += 1;
+            }
+        }
+        count
+    }
+
+    pub fn complete_matching_tasks(&mut self, query: &str, today: &str, week_idx: i64) -> usize {
+        let q = crate::system::fold(query.trim());
+        if q.is_empty() {
+            return 0;
+        }
+        let mut count = 0;
+        for card in &mut self.cards {
+            if card.archived || card.is_completed_today(today) {
+                continue;
+            }
+            if crate::system::matches_terms(&card.title, &q)
+                || crate::system::matches_terms(&card.note, &q)
+            {
+                card.mark_done(today, week_idx);
+                count += 1;
+            }
+        }
+        count
+    }
+
     pub fn upsert_tasks(&mut self, tasks: &[(String, String, String)]) -> (usize, Option<String>) {
+        let specs: Vec<crate::ai::PlannedTaskSpec> = tasks
+            .iter()
+            .map(|(title, note, status)| crate::ai::PlannedTaskSpec {
+                title: title.clone(),
+                note: note.clone(),
+                status: status.clone(),
+                ..Default::default()
+            })
+            .collect();
+        self.upsert_scheduled_tasks(&specs, ScheduleKind::None, "", 0, 0, false, "", None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_scheduled_tasks(
+        &mut self,
+        tasks: &[crate::ai::PlannedTaskSpec],
+        default_schedule: ScheduleKind,
+        default_due: &str,
+        default_interval_mins: u32,
+        default_weekly_target: u8,
+        default_remind: bool,
+        default_next_week_cmd: &str,
+        note_id: Option<&str>,
+    ) -> (usize, Option<String>) {
+        let (_, _, week_idx, _) = crate::system::local_clock_now();
         let mut count = 0;
         let mut first_id = None;
-        for (title, note, status) in tasks {
-            let clean_title = title.trim();
+        for item in tasks {
+            let clean_title = item.title.trim();
             if clean_title.is_empty() {
                 continue;
             }
-            let valid_status = if COLUMNS.iter().any(|(k, _)| *k == status.as_str()) {
-                status.as_str()
+            let valid_status = if COLUMNS.iter().any(|(k, _)| *k == item.status.as_str()) {
+                item.status.as_str()
             } else {
                 "todo"
             };
+            let sched = if item.schedule.trim().is_empty() {
+                default_schedule
+            } else {
+                ScheduleKind::from_str_lossy(&item.schedule)
+            };
+            let due_at = if item.due_at.trim().is_empty() {
+                default_due.trim().to_owned()
+            } else {
+                item.due_at.trim().to_owned()
+            };
+            let interval_mins = if item.interval_mins > 0 {
+                item.interval_mins
+            } else {
+                default_interval_mins
+            };
+            let weekly_target = if item.weekly_target > 0 {
+                item.weekly_target
+            } else if default_weekly_target > 0 {
+                default_weekly_target
+            } else if sched == ScheduleKind::Daily {
+                7
+            } else if sched == ScheduleKind::Weekly {
+                1
+            } else {
+                0
+            };
+            let next_week = if item.next_week_command.trim().is_empty() {
+                default_next_week_cmd.trim().to_owned()
+            } else {
+                item.next_week_command.trim().to_owned()
+            };
+            let remind = item.remind.unwrap_or(default_remind)
+                || sched != ScheduleKind::None
+                || !due_at.is_empty()
+                || interval_mins > 0;
+
             if let Some(existing) = self
                 .cards
                 .iter_mut()
                 .find(|c| c.title.eq_ignore_ascii_case(clean_title))
             {
-                if !note.trim().is_empty() {
-                    existing.note = note.clone();
+                if !item.note.trim().is_empty() {
+                    existing.note = item.note.clone();
                 }
                 existing.status = valid_status.to_owned();
                 existing.archived = false;
+                existing.schedule = sched;
+                existing.due_at = due_at;
+                existing.remind_interval_mins = interval_mins;
+                existing.weekly_target = weekly_target;
+                existing.remind_enabled = remind;
+                if !next_week.is_empty() {
+                    existing.next_week_command = next_week;
+                }
+                if let Some(nid) = note_id {
+                    existing.note_id = Some(nid.to_owned());
+                }
+                if existing.last_completed_week == 0 {
+                    existing.last_completed_week = week_idx;
+                }
                 if first_id.is_none() {
                     first_id = Some(existing.id.clone());
                 }
                 count += 1;
-            } else if let Ok(id) = self.create(clean_title.to_owned(), note.clone()) {
+            } else if let Ok(id) = self.create(clean_title.to_owned(), item.note.clone()) {
                 if let Some(card) = self.cards.iter_mut().find(|c| c.id == id) {
                     card.status = valid_status.to_owned();
+                    card.schedule = sched;
+                    card.due_at = due_at;
+                    card.remind_interval_mins = interval_mins;
+                    card.weekly_target = weekly_target;
+                    card.remind_enabled = remind;
+                    card.next_week_command = next_week;
+                    card.note_id = note_id.map(str::to_owned);
+                    card.last_completed_week = week_idx;
+                    card.week_cycle = 1;
                 }
                 if first_id.is_none() {
                     first_id = Some(id);
@@ -364,7 +816,7 @@ impl PentaKuru {
         });
     }
 
-    /// Áp dụng kết quả từ lệnh `@note` của AI: tạo hoặc cập nhật ghi chú và tự động tạo công việc trong section Kanban.
+    /// Áp dụng kết quả từ lệnh `@note` của AI: tạo hoặc cập nhật ghi chú (kèm thư mục) và đồng bộ Kanban.
     pub(super) fn apply_ai_note_plan(&mut self, reply: &str) -> String {
         self.poll_workspace();
         let target_id = self.workspace.pending_note_target_id.take();
@@ -384,7 +836,12 @@ impl PentaKuru {
             self.notes_mgr.save_selected_note();
             existing_id
         } else {
-            let new_id = self.notes_mgr.create_note(&plan.title, &plan.content);
+            let new_id = if let Some(folder) = &plan.folder {
+                self.notes_mgr
+                    .create_note_in_folder(folder, &plan.title, &plan.content)
+            } else {
+                self.notes_mgr.create_note(&plan.title, &plan.content)
+            };
             if let Some(note) = self.notes_mgr.notes.iter_mut().find(|n| n.id == new_id) {
                 note.ai_shared = true;
                 note.icon = if plan.tasks.is_empty() {
@@ -400,7 +857,27 @@ impl PentaKuru {
         let mut synced_tasks = 0;
         if self.workspace.storage_ready && !plan.tasks.is_empty() {
             let mut board = self.workspace.board.clone();
-            let (count, first_card_id) = board.upsert_tasks(&plan.tasks);
+            let specs: Vec<crate::ai::PlannedTaskSpec> = plan
+                .tasks
+                .iter()
+                .map(|(title, note, status)| crate::ai::PlannedTaskSpec {
+                    title: title.clone(),
+                    note: note.clone(),
+                    status: status.clone(),
+                    ..Default::default()
+                })
+                .collect();
+            let sched = ScheduleKind::from_str_lossy(&plan.schedule);
+            let (count, first_card_id) = board.upsert_scheduled_tasks(
+                &specs,
+                sched,
+                &plan.due_at,
+                plan.interval_mins,
+                plan.weekly_target,
+                plan.remind,
+                &plan.next_week_command,
+                Some(&note_id),
+            );
             if count > 0 && board.save(&self.notes_mgr.root_dir).is_ok() {
                 self.workspace.board = board;
                 synced_tasks = count;
@@ -410,6 +887,13 @@ impl PentaKuru {
                     note.task_card_id = Some(card_id);
                     self.notes_mgr.save_selected_note();
                 }
+            }
+            if plan.remind
+                || sched != ScheduleKind::None
+                || !plan.due_at.trim().is_empty()
+                || plan.interval_mins > 0
+            {
+                self.reminders_paused_by_chat = false;
             }
         }
 
@@ -425,6 +909,214 @@ impl PentaKuru {
         };
         self.workspace.status = summary_msg.clone();
         summary_msg
+    }
+
+    /// Thực thi các hành động Note / Thư mục / Kanban Daily / Hủy lịch phát sinh từ chat tự nhiên.
+    pub(super) fn apply_ai_task_actions(
+        &mut self,
+        actions: &[crate::ai::AiTaskAction],
+    ) -> Option<String> {
+        if actions.is_empty() {
+            return None;
+        }
+        self.poll_workspace();
+        let (today, _, week_idx, _) = crate::system::local_clock_now();
+        let mut logs = Vec::new();
+        for action in actions {
+            match action {
+                crate::ai::AiTaskAction::CreateFolder { folder } => {
+                    if let Some(clean) = crate::notes::clean_folder(folder) {
+                        self.notes_mgr.add_folder(&clean);
+                        logs.push(format!("Đã tạo thư mục «{clean}»."));
+                    }
+                }
+                crate::ai::AiTaskAction::CreatePlan {
+                    folder,
+                    title,
+                    content,
+                    schedule,
+                    due_at,
+                    interval_mins,
+                    weekly_target,
+                    remind,
+                    next_week_command,
+                    tasks,
+                } => {
+                    let clean_title = if title.trim().is_empty() {
+                        tasks
+                            .first()
+                            .map(|t| t.title.trim())
+                            .filter(|t| !t.is_empty())
+                            .unwrap_or("Kế hoạch AI")
+                            .to_owned()
+                    } else {
+                        title.trim().to_owned()
+                    };
+                    let mut body = content.trim().to_owned();
+                    if body.is_empty() {
+                        body = format!("# {clean_title}\n");
+                        for t in tasks {
+                            body.push_str(&format!("\n- [ ] {}", t.title.trim()));
+                            if !t.note.trim().is_empty() {
+                                body.push_str(&format!(": {}", t.note.trim()));
+                            }
+                        }
+                    }
+                    let note_id = if folder.trim().is_empty() {
+                        self.notes_mgr.create_note(&clean_title, &body)
+                    } else {
+                        self.notes_mgr
+                            .create_note_in_folder(folder, &clean_title, &body)
+                    };
+                    if let Some(note) = self.notes_mgr.notes.iter_mut().find(|n| n.id == note_id) {
+                        note.ai_shared = true;
+                        note.icon = "check".into();
+                    }
+                    self.notes_mgr.save_selected_note();
+
+                    let sched = ScheduleKind::from_str_lossy(schedule);
+                    let mut task_specs = tasks.clone();
+                    if task_specs.is_empty() {
+                        task_specs.push(crate::ai::PlannedTaskSpec {
+                            title: clean_title.clone(),
+                            note: body.lines().skip(1).collect::<Vec<_>>().join(" "),
+                            status: "todo".into(),
+                            ..Default::default()
+                        });
+                    }
+                    let mut synced = 0;
+                    if self.workspace.storage_ready {
+                        let mut board = self.workspace.board.clone();
+                        let (count, first_id) = board.upsert_scheduled_tasks(
+                            &task_specs,
+                            sched,
+                            due_at,
+                            *interval_mins,
+                            *weekly_target,
+                            *remind,
+                            next_week_command,
+                            Some(&note_id),
+                        );
+                        if count > 0 && board.save(&self.notes_mgr.root_dir).is_ok() {
+                            self.workspace.board = board;
+                            synced = count;
+                            if let Some(card_id) = first_id
+                                && let Some(note) =
+                                    self.notes_mgr.notes.iter_mut().find(|n| n.id == note_id)
+                            {
+                                note.task_card_id = Some(card_id);
+                                self.notes_mgr.save_selected_note();
+                            }
+                        }
+                    }
+                    if *remind
+                        || sched != ScheduleKind::None
+                        || !due_at.trim().is_empty()
+                        || *interval_mins > 0
+                    {
+                        self.reminders_paused_by_chat = false;
+                    }
+                    let folder_note = if folder.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!(" trong «{}»", folder.trim())
+                    };
+                    logs.push(format!(
+                        "Đã tạo ghi chú «{clean_title}»{folder_note} và {synced} việc Kanban."
+                    ));
+                }
+                crate::ai::AiTaskAction::CancelSchedule { query } => {
+                    if self.workspace.storage_ready {
+                        let mut board = self.workspace.board.clone();
+                        let cancelled = board.cancel_matching_schedules(query);
+                        if cancelled > 0 && board.save(&self.notes_mgr.root_dir).is_ok() {
+                            self.workspace.board = board;
+                            logs.push(format!("Đã hủy lịch nhắc cho {cancelled} công việc."));
+                        } else {
+                            logs.push("Không tìm thấy lịch đang bật khớp yêu cầu để hủy.".into());
+                        }
+                    }
+                }
+                crate::ai::AiTaskAction::CompleteTask { query } => {
+                    if self.workspace.storage_ready {
+                        let mut board = self.workspace.board.clone();
+                        let done_count = board.complete_matching_tasks(query, &today, week_idx);
+                        if done_count > 0 && board.save(&self.notes_mgr.root_dir).is_ok() {
+                            self.workspace.board = board;
+                            logs.push(format!(
+                                "Đã đánh dấu hoàn thành {done_count} công việc (sẽ không nhắc lại hôm nay)."
+                            ));
+                        }
+                    }
+                }
+                crate::ai::AiTaskAction::ConfigureReminders {
+                    startup,
+                    interval_mins,
+                    focus_alert_mins,
+                    proactive_rhythm,
+                    paused,
+                } => {
+                    let mut notes = Vec::new();
+                    if let Some(on) = startup {
+                        self.prefs.startup_reminder = *on;
+                        notes.push(if *on {
+                            "bật nhắc khi mở máy".to_owned()
+                        } else {
+                            "tắt nhắc khi mở máy".to_owned()
+                        });
+                    }
+                    if let Some(mins) = interval_mins {
+                        self.prefs.default_reminder_mins = (*mins).min(1440);
+                        notes.push(if *mins == 0 {
+                            "chỉ nhắc khi mở máy".to_owned()
+                        } else {
+                            format!("nhắc mặc định mỗi {mins} phút")
+                        });
+                    }
+                    if let Some(mins) = focus_alert_mins {
+                        self.prefs.edge_tts.focus_alert_mins = (*mins).clamp(15, 240);
+                        notes.push(format!(
+                            "nhắc nhịp làm việc sau {} phút không nhạc",
+                            self.prefs.edge_tts.focus_alert_mins
+                        ));
+                    }
+                    if let Some(on) = proactive_rhythm {
+                        self.prefs.edge_tts.proactive_work_rhythm = *on;
+                        notes.push(if *on {
+                            "bật phân tích nhịp làm việc".to_owned()
+                        } else {
+                            "tắt phân tích nhịp làm việc".to_owned()
+                        });
+                    }
+                    if *paused == Some(true) {
+                        self.reminders_paused_by_chat = true;
+                        self.reminder_job = None;
+                        self.work_rhythm_job = None;
+                        self.tts_player.stop();
+                        notes.push("đã tạm dừng nhắc nhở tự động".to_owned());
+                    } else if *paused == Some(false)
+                        || *startup == Some(true)
+                        || interval_mins.is_some()
+                        || focus_alert_mins.is_some()
+                        || *proactive_rhythm == Some(true)
+                    {
+                        self.reminders_paused_by_chat = false;
+                    }
+                    if notes.is_empty() {
+                        logs.push("Đã cập nhật thiết lập nhắc nhở qua AI.".into());
+                    } else {
+                        logs.push(format!("Đã cập nhật nhắc nhở: {}.", notes.join(", ")));
+                    }
+                }
+            }
+        }
+        if logs.is_empty() {
+            None
+        } else {
+            let joined = logs.join(" ");
+            self.workspace.status = joined.clone();
+            Some(joined)
+        }
     }
 
     /// Kích hoạt AI thống kê các công việc người dùng làm và tổng hợp vào ghi chú.
@@ -443,7 +1135,7 @@ impl PentaKuru {
         if !self.workspace.ai_note_bar_open {
             return;
         }
-        let busy = self.ai_job.is_some() || self.ui_agent.is_active;
+        let busy = self.ai_job.is_some();
         egui::Frame::new()
             .fill(theme::SIDEBAR)
             .stroke(egui::Stroke::new(1.0, theme::BORDER))
@@ -527,7 +1219,7 @@ impl PentaKuru {
 
         let (total, todo_c, doing_c, done_c) = self.workspace.board.stats();
         let pct = (done_c * 100).checked_div(total).unwrap_or(0);
-        let busy = self.ai_job.is_some() || self.ui_agent.is_active;
+        let busy = self.ai_job.is_some();
 
         // Hàng điều khiển Kanban thu gọn cỡ chữ nhỏ + Icon mini
         ui.horizontal_wrapped(|ui| {
@@ -611,7 +1303,7 @@ impl PentaKuru {
                     ui.add(
                         egui::TextEdit::multiline(&mut self.workspace.new_content)
                             .font(egui::FontId::proportional(11.0))
-                            .hint_text("Mô tả ngắn")
+                            .hint_text("Mô tả ngắn (đặt lịch/nhắc nhở bằng cách nhắn với AI)")
                             .desired_rows(2)
                             .desired_width(f32::INFINITY),
                     );
@@ -795,6 +1487,20 @@ impl PentaKuru {
                                                             .wrap(),
                                                         );
                                                     }
+                                                    if let Some(badge) = card.schedule_badge() {
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                egui::RichText::new(badge)
+                                                                    .size(10.0)
+                                                                    .color(
+                                                                        egui::Color32::from_rgb(
+                                                                            100, 220, 175,
+                                                                        ),
+                                                                    ),
+                                                            )
+                                                            .wrap(),
+                                                        );
+                                                    }
                                                 },
                                             );
                                             ui.horizontal_wrapped(|ui| {
@@ -962,6 +1668,7 @@ mod tests {
                 note: "Nội dung công việc cần được xuống dòng.".repeat(4),
                 status: "todo".into(),
                 archived: false,
+                ..Default::default()
             })
             .collect();
         let render = |app: &mut PentaKuru, size: egui::Vec2, events| {
@@ -1130,5 +1837,75 @@ mod tests {
         assert_eq!(board.cards[0].status, "todo");
         std::fs::remove_file(root.join(".kanban.json")).unwrap();
         std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn flexible_schedules_exclude_completed_and_rollover_weekly_cycles() {
+        let mut board = Board::default();
+        board.upsert_scheduled_tasks(
+            &[
+                crate::ai::PlannedTaskSpec {
+                    title: "Luyện cơ bắp".into(),
+                    note: "Hít đất & kéo xà".into(),
+                    ..Default::default()
+                },
+                crate::ai::PlannedTaskSpec {
+                    title: "Nộp báo cáo".into(),
+                    note: "Gửi PDF".into(),
+                    schedule: "none".into(),
+                    due_at: "17:00".into(),
+                    interval_mins: 30,
+                    remind: Some(true),
+                    ..Default::default()
+                },
+            ],
+            ScheduleKind::Daily,
+            "19:30",
+            0,
+            6,
+            true,
+            "Tăng độ khó tuần mới",
+            None,
+        );
+        assert_eq!(board.cards.len(), 2);
+
+        // Before 19:15, card 0 with explicit due_at 19:30 & interval=0 stays quiet,
+        // while card 1 with interval=30m is due once interval passes.
+        let due_afternoon = board.due_reminder_cards("2026-11-18", 14 * 60, 10_000, 60, false);
+        assert_eq!(due_afternoon, vec![1]);
+
+        // Approaching 19:30 (19:20) triggers timed card 0 too.
+        let due_evening = board.due_reminder_cards("2026-11-18", 19 * 60 + 20, 10_000, 60, false);
+        assert_eq!(due_evening, vec![0, 1]);
+
+        // Completing a task stops it from being reminded or sent up to AI context.
+        board.cards[0].mark_done("2026-11-18", 2968);
+        board.cards[1].mark_done("2026-11-18", 2968);
+        assert!(
+            board
+                .due_reminder_cards("2026-11-18", 19 * 60 + 25, 20_000, 60, true)
+                .is_empty()
+        );
+        let summary = board.ai_context_summary();
+        assert!(!summary.contains("Luyện cơ bắp"));
+        assert!(!summary.contains("Nộp báo cáo"));
+
+        // New day in same week reopens Daily card 0 only; regular card 1 stays done.
+        let (changed, rollovers) = board.rollover_schedules("2026-11-19", 2968);
+        assert!(changed);
+        assert!(rollovers.is_empty());
+        assert_eq!(board.cards[0].status, "todo");
+        assert_eq!(board.cards[1].status, "done");
+
+        // Crossing into the next week triggers WeeklyRollover when next_week_command is set.
+        let (changed_w, rollovers_w) = board.rollover_schedules("2026-11-23", 2969);
+        assert!(changed_w);
+        assert_eq!(rollovers_w.len(), 1);
+        assert_eq!(rollovers_w[0].next_week_cycle, 2);
+
+        // Cancelling a schedule disables both Daily repetition and reminders cleanly.
+        assert_eq!(board.cancel_matching_schedules("cơ bắp"), 1);
+        assert_eq!(board.cards[0].schedule, ScheduleKind::None);
+        assert!(!board.cards[0].remind_enabled);
     }
 }
