@@ -1,6 +1,6 @@
-# Hỗ trợ hệ điều hành & Phiên bản Full / Lite (v0.2.1)
+# Hỗ trợ hệ điều hành & Phiên bản Full / Lite (v0.2.2)
 
-PentaKuru v0.2.1 được tách thành **2 phiên bản** cho cả Windows, macOS (Apple Silicon `arm64` & Intel `x86_64`), và Linux:
+PentaKuru v0.2.2 được tách thành **2 phiên bản** cho cả Windows, macOS (Apple Silicon `arm64` & Intel `x86_64`), và Linux:
 - **PentaKuru Full** (`cargo build --release --locked`): Đầy đủ mọi tính năng, bao gồm **Office (LibreOffice Writer / Impress / Calc)**.
 - **PentaKuru Lite** (`cargo build --release --locked --no-default-features --features lite`): Gọn nhẹ, **không bao gồm LibreOffice / Office**, giữ nguyên toàn bộ các tính năng còn lại (Ghi chú & Kanban, Tìm kiếm nhanh, Chat AI, Edge TTS theo chunk, Sửa chính tả, Sally, Penta Music, Penta Clip, Đồng bộ đồng hồ).
 - **UI-TARS** đã được loại bỏ hoàn toàn ở cả 2 phiên bản.

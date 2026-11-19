@@ -96,7 +96,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           cat > release-notes.md <<'NOTES'
-          ## PentaKuru v0.2.1 — Tách 2 phiên bản Full & Lite · Hỗ trợ macOS · Edge TTS · Nhắc nhở qua AI
+          ## PentaKuru v0.2.2 — Tách 2 phiên bản Full & Lite · Hỗ trợ macOS · Edge TTS · Nhắc nhở qua AI
+
+          ### Sửa lỗi trong v0.2.2 (Windows)
+          - **Mini Music tự chuyển bài (sửa triệt để)**: luồng nhạc web báo thời lượng "không xác định", nên app không nhận ra bài đã hết. Giờ app dùng thời lượng bài từ Penta Music, nên vừa tự chuyển bài vừa hiển thị thanh tiến trình đúng.
+          - **Windows 11 không còn nền kính mờ**: tắt lớp nền Mica/Acrylic, viền xám 1px và bo góc của hệ thống trên mọi cửa sổ trong suốt, giữ nguyên giao diện tối giản.
 
           ### Sửa lỗi trong v0.2.1 (Windows)
           - **Mini Music tự chuyển bài trở lại**: trình phát nhận biết hết bài theo trạng thái phát thay vì sự kiện `MediaEnded` (vốn không bao giờ tới được PowerShell).

@@ -129,6 +129,12 @@ pub fn apply_window_dark_and_transparency(title: &str) {
     platform::apply_window_dark_and_transparency(title);
 }
 
+/// Removes the Windows 11 frosted backdrop and border from a transparent window.
+#[cfg(windows)]
+pub fn clear_window_backdrop(hwnd: windows_sys::Win32::Foundation::HWND) {
+    platform::clear_backdrop(hwnd);
+}
+
 /// Marks a floating overlay viewport as a tool window so it stays hidden from the taskbar and Alt+Tab.
 pub fn apply_tool_window(title: &str) {
     #[cfg(windows)]
@@ -484,14 +490,9 @@ mod platform {
                 std::mem::size_of::<i32>() as u32,
             );
 
-            // 2. Ép viền cửa sổ và thanh tiêu đề thành màu đen tuyền để triệt tiêu chớp viền trắng
+            // 2. Windows 11: no Mica/Acrylic backdrop, no DWM border, no corner clipping.
+            clear_backdrop(hwnd);
             let dark_color: u32 = 0x001A1A1A;
-            let _ = DwmSetWindowAttribute(
-                hwnd,
-                34, /* DWMWA_BORDER_COLOR */
-                &dark_color as *const _ as _,
-                std::mem::size_of::<u32>() as u32,
-            );
             let _ = DwmSetWindowAttribute(
                 hwnd,
                 35, /* DWMWA_CAPTION_COLOR */
@@ -510,6 +511,26 @@ mod platform {
                 };
                 let _ = DwmEnableBlurBehindWindow(hwnd, &configuration);
                 DeleteObject(region);
+            }
+        }
+    }
+
+    /// Windows 11 paints a frosted system backdrop and a 1px border behind
+    /// transparent windows; turn both off so only egui's own pixels show.
+    /// Older Windows ignores these attributes.
+    pub fn clear_backdrop(hwnd: windows_sys::Win32::Foundation::HWND) {
+        use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+        // DWMWA_SYSTEMBACKDROP_TYPE=DWMSBT_NONE, DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND,
+        // DWMWA_BORDER_COLOR=DWMWA_COLOR_NONE.
+        for (attribute, value) in [(38u32, 1u32), (33, 1), (34, 0xFFFF_FFFE)] {
+            // SAFETY: hwnd is a live window handle; value outlives the call.
+            unsafe {
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    attribute,
+                    &value as *const _ as _,
+                    std::mem::size_of::<u32>() as u32,
+                );
             }
         }
     }

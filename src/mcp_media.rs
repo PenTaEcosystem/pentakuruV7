@@ -962,7 +962,14 @@ impl AudioEngine {
         self.snapshot.lock().unwrap().clone()
     }
 
-    pub fn play(&mut self, url: &str, volume: f32, ctx: &egui::Context) -> Result<(), String> {
+    /// `duration_hint` (seconds, 0 = unknown) stands in when the stream reports no length.
+    pub fn play(
+        &mut self,
+        url: &str,
+        volume: f32,
+        duration_hint: f64,
+        ctx: &egui::Context,
+    ) -> Result<(), String> {
         let clean = url.trim();
         if !clean.starts_with("https://") && !clean.starts_with("http://") {
             return Err("Stream URL không hợp lệ.".into());
@@ -981,10 +988,12 @@ impl AudioEngine {
             }
             self.send_cmd(&format!("GEN {play_id}"))?;
             self.send_cmd(&format!("VOL {:.2}", volume.clamp(0.0, 1.0)))?;
+            self.send_cmd(&format!("DUR {:.1}", duration_hint.max(0.0)))?;
             self.send_cmd(&format!("PLAY {clean}"))
         }
         #[cfg(target_os = "macos")]
         {
+            let _ = duration_hint;
             self.stop_playback();
             let play_id = self.play_gen.fetch_add(1, Ordering::SeqCst) + 1;
             {
@@ -1089,7 +1098,7 @@ impl AudioEngine {
         }
         #[cfg(all(not(windows), not(target_os = "macos")))]
         {
-            let _ = (volume, ctx);
+            let _ = (volume, duration_hint, ctx);
             Err("Phát stream trực tiếp trong Mini Music Player hỗ trợ Windows và macOS.".into())
         }
     }
@@ -1228,6 +1237,8 @@ $ErrorActionPreference = 'SilentlyContinue'
 [Windows.Media.Core.MediaSource, Windows.Media.Core, ContentType=WindowsRuntime] | Out-Null
 $player = [Windows.Media.Playback.MediaPlayer]::new()
 $player.Volume = 0.85
+# Only PentaKuru may pause the player, so Playing -> Paused without PAUSE means the track ended.
+$player.CommandManager.IsEnabled = $false
 # StreamReader over raw stdin avoids SyncTextReader.ReadLineAsync synchronous blocking in .NET 4.x.
 $inReader = [System.IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.Encoding]::UTF8)
 $readTask = $inReader.ReadLineAsync()
@@ -1239,6 +1250,7 @@ $trackStarted = $false
 $endedFlag = $false
 $failFlag = $false
 $playAt = [DateTime]::UtcNow
+$hintDur = 0.0
 while ($true) {
     $cmdCount = 0
     $shouldQuit = $false
@@ -1249,6 +1261,10 @@ while ($true) {
         if ($line.StartsWith('GEN ')) {
             $g = 0
             if ([int]::TryParse($line.Substring(4).Trim(), [ref]$g)) { $gen = $g }
+            $hintDur = 0.0
+        } elseif ($line.StartsWith('DUR ')) {
+            $d = 0.0
+            if ([double]::TryParse($line.Substring(4), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$d)) { $hintDur = $d }
         } elseif ($line.StartsWith('PLAY ')) {
             $url = $line.Substring(5).Trim()
             $uri = $null
@@ -1293,9 +1309,11 @@ while ($true) {
     $rawSt = "$($s.PlaybackState)"
     $posNum = [Math]::Round($s.Position.TotalSeconds, 1)
     $durNum = [Math]::Round($s.NaturalDuration.TotalSeconds, 1)
+    # Progressive web streams report TimeSpan.MaxValue (~9.2e11 s) as "unknown length".
+    if ($durNum -gt 1e7) { $durNum = $hintDur }
     if ($rawSt -eq 'Playing') { $trackStarted = $true }
     # WinRT MediaEnded never reaches Register-ObjectEvent, so infer end/failure from state.
-    if ($wantPlay -and $trackStarted -and $rawSt -eq 'Paused' -and ($durNum -le 1.0 -or $posNum -ge $durNum - 5.0)) { $endedFlag = $true; $wantPlay = $false }
+    if ($wantPlay -and $trackStarted -and $rawSt -eq 'Paused' -and ($durNum -le 1.0 -or $posNum -ge $durNum - 15.0)) { $endedFlag = $true; $wantPlay = $false }
     if ($wantPlay -and -not $trackStarted -and ($rawSt -eq 'None' -or $rawSt -eq 'Paused') -and ([DateTime]::UtcNow - $playAt).TotalSeconds -gt 4) {
         $endedFlag = $true; $failFlag = $true; $wantPlay = $false
     }
@@ -1606,7 +1624,10 @@ impl MiniMusicState {
             let job = crate::system::Job::spawn(ctx, move || fetch_thumbnail_png(&thumb_url));
             self.thumb_jobs.insert(id, job);
         }
-        if let Err(err) = self.engine.play(&stream_url, self.volume, ctx) {
+        if let Err(err) = self
+            .engine
+            .play(&stream_url, self.volume, track.duration, ctx)
+        {
             self.status = Some(err);
         } else {
             self.status = None;
@@ -2144,7 +2165,7 @@ mod tests {
             let ctx = egui::Context::default();
             let mut engine = AudioEngine::default();
             engine
-                .play(&first_track.stream_url, 0.0, &ctx)
+                .play(&first_track.stream_url, 0.0, first_track.duration, &ctx)
                 .expect("AudioEngine play");
             let deadline = Instant::now() + Duration::from_secs(12);
             let mut started = PlaybackSnapshot::default();

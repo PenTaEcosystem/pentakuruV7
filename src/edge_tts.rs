@@ -439,7 +439,7 @@ impl SpeechPlayer {
                 map.insert(speech_id, Arc::new(Mutex::new(Some(chunk_rx))));
             }
             let url = format!("http://127.0.0.1:{port}/tts/{speech_id}.mp3");
-            if let Err(err) = self.engine.play(&url, settings.volume, ctx) {
+            if let Err(err) = self.engine.play(&url, settings.volume, 0.0, ctx) {
                 self.status = Some(err);
                 return;
             }

@@ -11,7 +11,7 @@ parser.add_argument("--edition", choices=["full", "lite"], default="full")
 parser.add_argument("--binary", type=Path, default=Path("target/release/pentakuru.exe"))
 parser.add_argument("--watch", type=Path, help="Optional built Zepp .zab to include with Windows package")
 parser.add_argument("--skip-source", action="store_true", help="Skip generating the source archive")
-parser.add_argument("--source-name", default="PentaKuru-v0.2.1")
+parser.add_argument("--source-name", default="PentaKuru-v0.2.2")
 args = parser.parse_args()
 
 for label, val in [("name", args.name), ("source-name", args.source_name)]:
@@ -28,11 +28,11 @@ exe = dist / f"{args.name}.exe"
 shutil.copy2(root / args.binary, exe)
 
 edition_notes = (
-    "PentaKuru Full (v0.2.1)\n"
+    "PentaKuru Full (v0.2.2)\n"
     "- Bao gom day du tinh nang: Notes, Kanban, Tim kiem, Chat AI, Edge TTS, Sua chinh ta, Sally, Penta Music, Penta Clip, Watch Server, va Office (LibreOffice).\n"
     "- Da loai bo UI-TARS; lich nhac nho thiet lap qua Chat AI va tu dong tam dung khi nhan tin voi AI.\n"
     if args.edition == "full"
-    else "PentaKuru Lite (v0.2.1)\n"
+    else "PentaKuru Lite (v0.2.2)\n"
     "- Phien ban gon nhe KHONG bao gom LibreOffice / Office.\n"
     "- Giu nguyen toan bo cac tinh nang con lai: Notes, Kanban, Tim kiem, Chat AI, Edge TTS, Sua chinh ta, Sally, Penta Music, Penta Clip, Watch Server.\n"
     "- Da loai bo UI-TARS; lich nhac nho thiet lap qua Chat AI va tu dong tam dung khi nhan tin voi AI.\n"

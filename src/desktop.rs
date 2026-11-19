@@ -32,6 +32,7 @@ pub fn enable_transparency(cc: &eframe::CreationContext<'_>) -> Result<(), Strin
             return Err(format!("DWM composition failed: {result:#x}"));
         }
     }
+    crate::system::clear_window_backdrop(handle.hwnd.get() as _);
     Ok(())
 }
 
