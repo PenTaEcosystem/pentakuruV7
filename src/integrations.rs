@@ -1,9 +1,8 @@
 //! Optional Penta media and background process helpers.
 use serde::{Deserialize, Serialize};
-use std::{
-    process::Child,
-    sync::{Arc, atomic::AtomicBool},
-};
+#[cfg(any(windows, feature = "office"))]
+use std::process::Child;
+use std::sync::{Arc, atomic::AtomicBool};
 
 pub const DEFAULT_MUSIC_MCP_URL: &str = "https://music.pentasys.id.vn/api/mcp/call";
 pub const DEFAULT_CLIP_MCP_URL: &str = "https://clip.pentasys.id.vn/mcp";
@@ -132,6 +131,7 @@ pub fn background_command(program: impl AsRef<std::ffi::OsStr>) -> std::process:
     command.creation_flags(0x08000000);
     command
 }
+#[cfg(any(windows, feature = "office"))]
 pub fn stop_child(child: &mut Child) {
     if child.try_wait().ok().flatten().is_some() {
         return;

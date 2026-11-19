@@ -100,7 +100,20 @@ PLIST
             codesign --verify --deep --strict "$app"
             tar -czf "dist/PentaKuru-${edition_label}-macOS-${arch}.tar.gz" -C "$stage" .
             ln -s /Applications "$stage/Applications"
-            hdiutil create -ov -volname "${bundle_name}" -srcfolder "$stage" -format UDZO "dist/PentaKuru-${edition_label}-macOS-${arch}.dmg"
+            dmg_out="dist/PentaKuru-${edition_label}-macOS-${arch}.dmg"
+            attempt=1
+            while [ "$attempt" -le 3 ]; do
+                if hdiutil create -ov -volname "${bundle_name}" -srcfolder "$stage" -format UDZO "$dmg_out"; then
+                    break
+                fi
+                if [ "$attempt" -eq 3 ]; then
+                    echo "hdiutil create failed after 3 attempts" >&2
+                    exit 1
+                fi
+                echo "hdiutil busy, retrying ($attempt/3)..." >&2
+                sleep 3
+                attempt=$((attempt + 1))
+            done
             ;;
         Linux)
             cp target/release/pentakuru "$stage/pentakuru"

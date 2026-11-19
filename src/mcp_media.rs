@@ -88,6 +88,7 @@ pub enum MediaCommand {
     ClipClose,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PlaybackState {
     #[default]
@@ -97,6 +98,7 @@ pub enum PlaybackState {
     Paused,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct PlaybackSnapshot {
     pub state: PlaybackState,
@@ -1162,6 +1164,7 @@ impl AudioEngine {
     }
 
     /// Stops current audio immediately while keeping the warm background player ready.
+    #[allow(dead_code)]
     pub fn stop_playback(&mut self) {
         self.play_gen.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut snap) = self.snapshot.lock() {
