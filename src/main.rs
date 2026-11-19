@@ -546,7 +546,7 @@ impl PentaKuru {
                 }
 
                 #[cfg(feature = "office")]
-                "office" | "office-library" | "office-chat" | "office-small" => {
+                "office" | "office-library" => {
                     let file = office::File {
                         path: PathBuf::from(".build/ui-office/Giao-an.docx"),
                         name: "Giáo án Ngữ văn.docx".into(),
@@ -555,17 +555,9 @@ impl PentaKuru {
                         manual: false,
                         last_opened: 0,
                     };
-                    app.office.focused = Some(file.path.clone());
-                    app.office.active.push(office::Session {
-                        file: file.clone(),
-                        dirty: false,
-                        targeted: true,
-                    });
                     app.office.files.push(file);
                     app.office.status = "Bản xem trước · dữ liệu mẫu".into();
-                    if kind == "office-library" || kind == "office-small" {
-                        app.office.library_open = true;
-                        app.office.filter = None;
+                    if kind == "office-library" {
                         for (name, file_kind) in [
                             ("Bài giảng và kế hoạch học tập.docx", office::Kind::Word),
                             ("Bảng tính không có tiêu đề.xlsx", office::Kind::Excel),
@@ -597,17 +589,6 @@ impl PentaKuru {
                                 last_opened: i,
                             });
                         }
-                    }
-                    if kind == "office-chat" || kind == "office-small" {
-                        app.office.chat = vec![
-                            (true, "Sửa chính tả và giữ nguyên ý chính giúp tôi.".into()),
-                            (
-                                false,
-                                "Giáo án Ngữ văn.docx: Đã sửa chính tả.
-Bản gốc được giữ để hoàn tác."
-                                    .into(),
-                            ),
-                        ];
                     }
                 }
                 "search" | "search-results" => {
@@ -3696,7 +3677,7 @@ fn main() -> eframe::Result {
             Some("ai-error") => [540.0, 160.0],
             Some("ai-menu-compact") => [540.0, 220.0],
             Some("ai-long") => [320.0, 360.0],
-            Some("office") => [480.0, 300.0],
+            Some("office") => [400.0, 440.0],
             Some("icons") => [400.0, 560.0],
             Some("settings" | "settings-tts") => [480.0, 520.0],
             _ => [160.0, 190.0],

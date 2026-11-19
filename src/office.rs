@@ -95,15 +95,9 @@ pub struct File {
     #[serde(default)]
     pub last_opened: u64,
 }
-#[derive(Clone)]
-pub struct Session {
-    pub file: File,
-    pub dirty: bool,
-    pub targeted: bool,
-}
 pub enum ResultItem {
     Indexed(Vec<File>),
-    Opened(File, bool),
+    Opened(File),
     Updated(Vec<(PathBuf, bool, String)>),
     Labeled(Vec<File>),
     #[cfg(windows)]
@@ -111,24 +105,10 @@ pub enum ResultItem {
 }
 pub struct State {
     pub files: Vec<File>,
-    pub active: Vec<Session>,
-    pub focused: Option<PathBuf>,
-    pub library_open: bool,
     pub query: String,
-    pub filter: Option<Kind>,
-    pub label: String,
-    pub prompt: String,
-    pub chat: Vec<(bool, String)>,
-    pub discard_reply: bool,
-    pub operation: usize,
-    pub scope: usize,
-    pub font: String,
-    pub font_size: f32,
     pub status: String,
     pub job: Option<system::Job<Result<ResultItem, String>>>,
     pub cancel: Arc<AtomicBool>,
-    pub label_edit: Option<PathBuf>,
-    pub label_text: String,
     pub indexed: bool,
     pub installation_attempted: bool,
 }
@@ -136,38 +116,15 @@ impl Default for State {
     fn default() -> Self {
         Self {
             files: Vec::new(),
-            active: Vec::new(),
-            focused: None,
-            library_open: false,
             query: String::new(),
-            filter: Some(Kind::Word),
-            label: String::new(),
-            prompt: String::new(),
-            chat: Vec::new(),
-            discard_reply: false,
-            operation: 0,
-            scope: 1,
-            font: "Liberation Serif".into(),
-            font_size: 13.0,
             status: String::new(),
             job: None,
             cancel: Arc::new(AtomicBool::new(false)),
-            label_edit: None,
-            label_text: String::new(),
             indexed: false,
             installation_attempted: false,
         }
     }
 }
-impl State {
-    pub fn clear_chat(&mut self) {
-        self.chat.clear();
-        self.prompt.clear();
-        self.status.clear();
-        self.discard_reply = self.job.is_some();
-    }
-}
-
 fn library_path() -> PathBuf {
     system::data_dir().join("Office/library.json")
 }
@@ -380,17 +337,14 @@ pub fn create(settings: &Settings, kind: Kind) -> Result<ResultItem, String> {
     let name = format!("New {}.{extension}", kind.label());
     let path = directory.join(&name);
     match call(settings, &path, "create", json!({"kind": kind.label()})) {
-        Ok(value) => Ok(ResultItem::Opened(
-            File {
-                path,
-                name,
-                kind,
-                labels: Vec::new(),
-                manual: false,
-                last_opened: 0,
-            },
-            value["dirty"].as_bool().unwrap_or(false),
-        )),
+        Ok(_) => Ok(ResultItem::Opened(File {
+            path,
+            name,
+            kind,
+            labels: Vec::new(),
+            manual: false,
+            last_opened: 0,
+        })),
         Err(error) => {
             let _ = std::fs::remove_dir(&directory);
             Err(error)
@@ -587,6 +541,8 @@ pub fn text_changes(snapshot: &Value, reply: &Value) -> Result<Value, String> {
     }
     Ok(Value::Array(result))
 }
+// AI editing is not in the Office UI yet; kept for when it is wired back in.
+#[allow(dead_code)]
 pub struct EditRequest {
     pub paths: Vec<PathBuf>,
     pub operation: usize,
@@ -595,6 +551,8 @@ pub struct EditRequest {
     pub font: String,
     pub size: f32,
 }
+// AI editing is not in the Office UI yet; kept for when it is wired back in.
+#[allow(dead_code)]
 pub fn edit(
     settings: &Settings,
     ai_settings: &ai::AiSettings,
@@ -719,6 +677,8 @@ pub fn edit(
     }
     Ok(ResultItem::Updated(results))
 }
+// AI editing is not in the Office UI yet; kept for when it is wired back in.
+#[allow(dead_code)]
 pub fn classify(
     mut files: Vec<File>,
     settings: &ai::AiSettings,
@@ -790,25 +750,6 @@ pub fn classify(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn new_office_conversation_discards_previous_reply_and_draft() {
-        let mut state = State {
-            chat: vec![(false, "old reply".into())],
-            prompt: "old draft".into(),
-            status: "old status".into(),
-            job: Some(system::Job::spawn(
-                &eframe::egui::Context::default(),
-                || Ok(ResultItem::Updated(Vec::new())),
-            )),
-            ..State::default()
-        };
-        state.clear_chat();
-        assert!(state.chat.is_empty());
-        assert!(state.prompt.is_empty());
-        assert!(state.status.is_empty());
-        assert!(state.discard_reply);
-    }
-
     #[test]
     fn formats_and_defaults() {
         assert_eq!(Kind::from_path(Path::new("A.PPTX")), Some(Kind::PowerPoint));
