@@ -22,7 +22,7 @@
 [Setup]
 AppId={#InstallerId}
 AppName=PentaKuru
-AppVersion=0.2.0
+AppVersion=0.2.1
 AppPublisher=Pentasys
 DefaultDirName={localappdata}\Programs\PentaKuru
 DefaultGroupName=PentaKuru

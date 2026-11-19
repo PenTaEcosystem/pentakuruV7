@@ -96,7 +96,12 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           cat > release-notes.md <<'NOTES'
-          ## PentaKuru v0.2.0 — Tách 2 phiên bản Full & Lite · Hỗ trợ macOS · Edge TTS · Nhắc nhở qua AI
+          ## PentaKuru v0.2.1 — Tách 2 phiên bản Full & Lite · Hỗ trợ macOS · Edge TTS · Nhắc nhở qua AI
+
+          ### Sửa lỗi trong v0.2.1 (Windows)
+          - **Mini Music tự chuyển bài trở lại**: trình phát nhận biết hết bài theo trạng thái phát thay vì sự kiện `MediaEnded` (vốn không bao giờ tới được PowerShell).
+          - **Bài hát lỗi không còn bị kẹt**: luồng không mở được sẽ tự bỏ qua sang bài kế tiếp; nếu cả danh sách đều lỗi thì dừng và báo lỗi thay vì lặp vô hạn.
+          - **Giọng đọc Edge TTS không còn bị tắt tiếng**: trước đây một bài nhạc lỗi kẹt ở trạng thái "đang mở" khiến app tưởng nhạc vẫn phát và bỏ qua giọng đọc.
 
           ### Chọn phiên bản phù hợp
           - **PentaKuru Full** (`PentaKuru-Full-*`): Đầy đủ tất cả tính năng, bao gồm tích hợp **Office / LibreOffice** (Writer, Impress, Calc với AI biên soạn nội dung, tiêu đề, bố cục).

@@ -1,4 +1,4 @@
-# PentaKuru v0.2.0
+# PentaKuru v0.2.1
 
 Hỗ trợ **Windows**, **macOS (Apple Silicon `arm64` & Intel `x86_64`)** và **Linux** với 2 phiên bản:
 - **PentaKuru Full**: Đầy đủ mọi tính năng, bao gồm tích hợp **Office / LibreOffice** (Writer, Impress, Calc).

@@ -15,7 +15,7 @@ try {
     Write-Host '=== Building PentaKuru Full (Windows x64) ==='
     cargo build --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'Full Rust build failed' }
-    python scripts/package-sally.py --name PentaKuru-Full --edition full --binary target/release/pentakuru.exe --source-name PentaKuru-v0.2.0
+    python scripts/package-sally.py --name PentaKuru-Full --edition full --binary target/release/pentakuru.exe --source-name PentaKuru-v0.2.1
     if ($LASTEXITCODE -ne 0) { throw 'Full packaging failed' }
 
     Write-Host '=== Building PentaKuru Lite (Windows x64, no LibreOffice) ==='

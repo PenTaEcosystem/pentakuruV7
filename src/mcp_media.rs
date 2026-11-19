@@ -1228,7 +1228,6 @@ $ErrorActionPreference = 'SilentlyContinue'
 [Windows.Media.Core.MediaSource, Windows.Media.Core, ContentType=WindowsRuntime] | Out-Null
 $player = [Windows.Media.Playback.MediaPlayer]::new()
 $player.Volume = 0.85
-Register-ObjectEvent -InputObject $player -EventName MediaEnded -SourceIdentifier 'PKMediaEnded' | Out-Null
 # StreamReader over raw stdin avoids SyncTextReader.ReadLineAsync synchronous blocking in .NET 4.x.
 $inReader = [System.IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.Encoding]::UTF8)
 $readTask = $inReader.ReadLineAsync()
@@ -1238,6 +1237,8 @@ $gen = 0
 $wantPlay = $false
 $trackStarted = $false
 $endedFlag = $false
+$failFlag = $false
+$playAt = [DateTime]::UtcNow
 while ($true) {
     $cmdCount = 0
     $shouldQuit = $false
@@ -1253,9 +1254,10 @@ while ($true) {
             $uri = $null
             if ([Uri]::TryCreate($url, [UriKind]::Absolute, [ref]$uri) -and ($uri.Scheme -eq 'https' -or $uri.Scheme -eq 'http')) {
                 $endedFlag = $false
+                $failFlag = $false
                 $trackStarted = $false
                 $wantPlay = $true
-                Remove-Event -SourceIdentifier 'PKMediaEnded' -ErrorAction SilentlyContinue
+                $playAt = [DateTime]::UtcNow
                 $player.Source = [Windows.Media.Core.MediaSource]::CreateFromUri($uri)
                 $player.Play()
             }
@@ -1274,30 +1276,30 @@ while ($true) {
             $sec = 0.0
             if ([double]::TryParse($line.Substring(5), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$sec)) {
                 $endedFlag = $false
-                Remove-Event -SourceIdentifier 'PKMediaEnded' -ErrorAction SilentlyContinue
                 $player.PlaybackSession.Position = [TimeSpan]::FromSeconds([Math]::Max(0.0, $sec))
             }
         } elseif ($line -eq 'STOP') {
             $wantPlay = $false
             $trackStarted = $false
             $endedFlag = $false
-            Remove-Event -SourceIdentifier 'PKMediaEnded' -ErrorAction SilentlyContinue
+            $failFlag = $false
             $player.Pause()
             $player.Source = $null
         }
         $readTask = $inReader.ReadLineAsync()
     }
     if ($shouldQuit) { break }
-    if (Get-Event -SourceIdentifier 'PKMediaEnded' -ErrorAction SilentlyContinue) {
-        Remove-Event -SourceIdentifier 'PKMediaEnded' -ErrorAction SilentlyContinue
-        $endedFlag = $true
-    }
     $s = $player.PlaybackSession
     $rawSt = "$($s.PlaybackState)"
     $posNum = [Math]::Round($s.Position.TotalSeconds, 1)
     $durNum = [Math]::Round($s.NaturalDuration.TotalSeconds, 1)
     if ($rawSt -eq 'Playing') { $trackStarted = $true }
-    $emitSt = if ($rawSt -eq 'Paused' -and $wantPlay -and -not $trackStarted -and -not $endedFlag) { 'Opening' } else { $rawSt }
+    # WinRT MediaEnded never reaches Register-ObjectEvent, so infer end/failure from state.
+    if ($wantPlay -and $trackStarted -and $rawSt -eq 'Paused' -and ($durNum -le 1.0 -or $posNum -ge $durNum - 5.0)) { $endedFlag = $true; $wantPlay = $false }
+    if ($wantPlay -and -not $trackStarted -and ($rawSt -eq 'None' -or $rawSt -eq 'Paused') -and ([DateTime]::UtcNow - $playAt).TotalSeconds -gt 4) {
+        $endedFlag = $true; $failFlag = $true; $wantPlay = $false
+    }
+    $emitSt = if ($failFlag) { 'Failed' } elseif ($rawSt -eq 'Paused' -and $wantPlay -and -not $trackStarted -and -not $endedFlag) { 'Opening' } else { $rawSt }
     $nearEnd = ($durNum -gt 1.0 -and $posNum -ge ($durNum - 1.0) -and $posNum -ne $lastPos)
     $posFloor = [Math]::Floor($s.Position.TotalSeconds)
     $durStr = $durNum.ToString([Globalization.CultureInfo]::InvariantCulture)
@@ -1311,7 +1313,6 @@ while ($true) {
     }
     Start-Sleep -Milliseconds 100
 }
-Unregister-Event -SourceIdentifier 'PKMediaEnded' -ErrorAction SilentlyContinue
 $player.Pause()
 $player.Dispose()
 "#;
@@ -1372,13 +1373,17 @@ $player.Dispose()
                         let dur = parts[2].parse::<f64>().unwrap_or(0.0);
                         let ended = parts[3].eq_ignore_ascii_case("true")
                             || (dur > 1.0 && pos >= dur - 0.65 && state != PlaybackState::Playing);
+                        let error = (parts[0] == "Failed")
+                            .then(|| "Không mở được luồng âm thanh.".to_owned());
                         let changed = {
                             let mut snap = snap_ref.lock().unwrap();
                             let dirty = snap.state != state
                                 || snap.ended != ended
                                 || (snap.duration_secs - dur).abs() > 0.4
-                                || (snap.position_secs - pos).abs() >= 0.8;
+                                || (snap.position_secs - pos).abs() >= 0.8
+                                || snap.error != error;
                             snap.state = state;
+                            snap.error = error;
                             snap.position_secs = pos;
                             snap.duration_secs = dur;
                             snap.ended = ended;
@@ -1429,6 +1434,7 @@ pub struct MiniMusicState {
     played_ids: HashSet<String>,
     discover_requested: bool,
     was_ended: bool,
+    failed_streak: usize,
 }
 
 impl Default for MiniMusicState {
@@ -1453,6 +1459,7 @@ impl Default for MiniMusicState {
             played_ids: HashSet::new(),
             discover_requested: false,
             was_ended: false,
+            failed_streak: 0,
         }
     }
 }
@@ -1714,9 +1721,19 @@ impl MiniMusicState {
             return;
         }
         let snap = self.engine.snapshot();
+        if snap.state == PlaybackState::Playing {
+            self.failed_streak = 0;
+        }
         if snap.ended && !self.was_ended {
             self.was_ended = true;
-            if self.repeat {
+            let failed = snap.error.is_some();
+            if failed {
+                self.failed_streak += 1;
+            }
+            if failed && self.failed_streak >= self.tracks.len().max(1) {
+                // Every track failed in a row: stop instead of cycling forever.
+                self.status = snap.error.clone();
+            } else if self.repeat && !failed {
                 self.play_index(self.current_index, ctx);
             } else if self.hit_playlist_end() {
                 self.discover_requested = true;
@@ -2218,5 +2235,37 @@ mod tests {
         }
         st.poll(&ctx);
         assert!(st.take_discover_request().is_some());
+    }
+
+    #[test]
+    fn poll_skips_failed_stream_but_stops_when_all_fail() {
+        let ctx = egui::Context::default();
+        let track = |id: &str| Track {
+            video_id: id.into(),
+            ..Default::default()
+        };
+        let mut st = MiniMusicState {
+            open: true,
+            repeat: true,
+            tracks: vec![track("t1"), track("t2")],
+            ..Default::default()
+        };
+        let fail = |st: &mut MiniMusicState| {
+            let mut snap = st.engine.snapshot.lock().unwrap();
+            snap.state = PlaybackState::Stopped;
+            snap.ended = true;
+            snap.error = Some("x".into());
+        };
+        fail(&mut st);
+        st.poll(&ctx);
+        assert_eq!(
+            st.current_index, 1,
+            "failed track is skipped even with repeat"
+        );
+        st.was_ended = false;
+        fail(&mut st);
+        st.poll(&ctx);
+        assert_eq!(st.current_index, 1, "stops after every track failed");
+        assert!(st.status.is_some());
     }
 }
