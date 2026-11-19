@@ -65,6 +65,7 @@ jobs:
         with:
           name: PentaKuru-${{ runner.os }}-${{ runner.arch }}
           path: |
+            dist/PentaKuru-*.exe
             dist/PentaKuru-*.zip
             dist/PentaKuru-*.tar.gz
             dist/PentaKuru-*.dmg
