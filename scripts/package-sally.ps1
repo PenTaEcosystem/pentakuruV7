@@ -16,7 +16,7 @@ try {
     Write-Host '=== Building PentaKuru Full (Windows x64) ==='
     cargo build --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'Full Rust build failed' }
-    python scripts/package-sally.py --name PentaKuru-Full --edition full --binary target/release/pentakuru.exe --source-name PentaKuru-v0.2.2
+    python scripts/package-sally.py --name PentaKuru-Full --edition full --binary target/release/pentakuru.exe --source-name PentaKuru-v0.2.3
     if ($LASTEXITCODE -ne 0) { throw 'Full packaging failed' }
     if ($Setup) {
         # Offline installer bundles LibreOffice/WebView2/VC++; it must run while target/release holds the Full binary.

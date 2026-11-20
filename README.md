@@ -1,4 +1,4 @@
-# PentaKuru v0.2.2
+# PentaKuru v0.2.3
 
 Hỗ trợ **Windows**, **macOS (Apple Silicon `arm64` & Intel `x86_64`)** và **Linux** với 2 phiên bản:
 - **PentaKuru Full**: Đầy đủ mọi tính năng, bao gồm tích hợp **Office / LibreOffice** (Writer, Impress, Calc).
@@ -17,7 +17,7 @@ Tải [Setup mới nhất](https://github.com/PenTaEcosystem/pentakuruV7/release
 
 Ghi chú có chế độ xem heading, nút **AI sắp xếp heading** và lưu phản hồi chat vào note. Alt+A hỗ trợ “Anh muốn nghe nhạc”, “Tìm bài hát …”, “Nghe bài …” và “Tạm dừng nhạc” qua Penta Music. [Cách dùng và phạm vi kiểm thử](docs/NOTES-MUSIC-CONTROL.md).
 
-Cài `dist/PentaKuru-Setup.exe`, mở PentaKuru, vào **Alt+Q → Settings** để bật từng tiện ích. Office tìm tài liệu, chỉ gán nhãn khi bấm Hệ thống, giữ nhiều file active và chỉnh trực tiếp Writer/Impress qua UNO; có sửa chính tả, nâng cấp bài viết, kiểu chữ, căn ảnh, lưu và hoàn tác. Penta Music/Penta Video dùng trực tiếp trang web, giữ đăng nhập, playlist và tìm kiếm gốc; bố cục tối ưu khung nhỏ. Settings cho chọn 0–5 icon riêng, mặc định 4; chức năng không có icon vẫn ở menu chuột phải. Kanban trong Notes lưu cục bộ, có kéo thả ba cột và liên kết note. Setup mang theo WebView2 và LibreOffice.
+Cài `dist/PentaKuru-Setup.exe`, mở PentaKuru, vào **Alt+Q → Settings** để bật từng tiện ích. Office là bảng khởi chạy LibreOffice gọn: 3 nút tạo Writer/Calc/Impress, tìm nhanh và mở tài liệu (Enter mở file đầu); AI chỉnh sửa sẽ được tích hợp lại sau. Penta Music/Penta Video dùng trực tiếp trang web, giữ đăng nhập, playlist và tìm kiếm gốc; bố cục tối ưu khung nhỏ. Settings cho chọn 0–5 icon riêng, mặc định 4; chức năng không có icon vẫn ở menu chuột phải. Kanban trong Notes lưu cục bộ, có kéo thả ba cột và liên kết note. Setup mang theo WebView2 và LibreOffice.
 
 Hướng dẫn sử dụng, phụ thuộc runtime, phạm vi hỗ trợ và kiểm chứng: [docs/OFFICE-MEDIA-INTEGRATION.md](docs/OFFICE-MEDIA-INTEGRATION.md). Các tiện ích mới mặc định tắt; không thêm phím tắt. Bản này ưu tiên Writer/Impress; Calc mở tài liệu. EXE, bộ cài và cửa sổ dùng icon ngũ giác đen viền trắng.
 

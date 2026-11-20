@@ -2,7 +2,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-VERSION="0.2.2"
+VERSION="0.2.3"
 BUILD_NUM="2"
 mkdir -p dist
 platform="$(uname -s)"

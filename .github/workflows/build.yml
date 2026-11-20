@@ -99,7 +99,12 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           cat > release-notes.md <<'NOTES'
-          ## PentaKuru v0.2.2 — Tách 2 phiên bản Full & Lite · Hỗ trợ macOS · Edge TTS · Nhắc nhở qua AI
+          ## PentaKuru v0.2.3 — Tách 2 phiên bản Full & Lite · Hỗ trợ macOS · Edge TTS · Nhắc nhở qua AI
+
+          ### Mới trong v0.2.3 (Windows)
+          - **Bộ cài offline `PentaKuru-Setup.exe`**: bản Full mang sẵn LibreOffice, WebView2 và Visual C++ Runtime, cài không cần Internet.
+          - **Sửa tự cài LibreOffice**: link tải LibreOffice cũ đã bị gỡ khỏi máy chủ khiến app không tự cài được; nay dùng kho lưu trữ cố định của LibreOffice.
+          - **Office gọn hơn**: cửa sổ Office chỉ còn 3 nút tạo Writer / Calc / Impress, ô tìm nhanh (Enter mở file đầu) và danh sách tài liệu vừa mở. Phần AI chỉnh sửa tạm ẩn, sẽ tích hợp lại sau.
 
           ### Sửa lỗi trong v0.2.2 (Windows)
           - **Mini Music tự chuyển bài (sửa triệt để)**: luồng nhạc web báo thời lượng "không xác định", nên app không nhận ra bài đã hết. Giờ app dùng thời lượng bài từ Penta Music, nên vừa tự chuyển bài vừa hiển thị thanh tiến trình đúng.

@@ -1,6 +1,6 @@
 [package]
 name = "pentakuru"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 rust-version = "1.95"
 description = "A monochrome pentagonal desktop companion with notes, search, AI and spell fixing"
