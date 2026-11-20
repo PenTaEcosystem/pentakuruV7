@@ -12,7 +12,7 @@ if ($InstallerPath) {
         Copy-Item -LiteralPath $InstallerPath -Destination $payload -Force
     }
 } elseif (-not (Test-Path -LiteralPath $payload)) {
-    $uri = 'https://download.documentfoundation.org/libreoffice/stable/26.8.1/win/x86_64/LibreOffice_26.8.1_Win_x86-64.msi'
+    $uri = 'https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.1.1/win/x86_64/LibreOffice_26.8.1.1_Win_x86-64.msi'
     Invoke-WebRequest -Uri $uri -OutFile ($payload + '.part') -UseBasicParsing -TimeoutSec 900
     Move-Item -LiteralPath ($payload + '.part') -Destination $payload -Force
 }

@@ -22,7 +22,7 @@ $officeLog = Join-Path $officeBase 'install.log'
 $officeMsiLog = Join-Path $officeBase 'msiexec.log'
 try {
     $officeMsi = Join-Path $officeBase 'LibreOffice-26.8.1.msi'
-    $officeUri = 'https://download.documentfoundation.org/libreoffice/stable/26.8.1/win/x86_64/LibreOffice_26.8.1_Win_x86-64.msi'
+    $officeUri = 'https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.1.1/win/x86_64/LibreOffice_26.8.1.1_Win_x86-64.msi'
     function Test-SignedInstaller {
         if (-not (Test-Path -LiteralPath $officeMsi)) { return $false }
         $signature = Get-AuthenticodeSignature -LiteralPath $officeMsi
