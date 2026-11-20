@@ -54,10 +54,13 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Clippy Lite edition
         run: cargo clippy --locked --no-default-features --features lite --all-targets -- -D warnings
-      - name: Package Windows (Full & Lite)
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        run: choco upgrade innosetup -y --no-progress
+      - name: Package Windows (Full & Lite + offline Setup)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/package.ps1
+        run: ./scripts/package.ps1 -Setup
       - name: Package macOS / Linux (Full & Lite)
         if: runner.os != 'Windows'
         run: sh scripts/package.sh
@@ -108,6 +111,7 @@ jobs:
           - **Giọng đọc Edge TTS không còn bị tắt tiếng**: trước đây một bài nhạc lỗi kẹt ở trạng thái "đang mở" khiến app tưởng nhạc vẫn phát và bỏ qua giọng đọc.
 
           ### Chọn phiên bản phù hợp
+          - **`PentaKuru-Setup.exe` (Windows, khuyên dùng)**: Bộ cài offline bản Full, mang sẵn LibreOffice, WebView2 và Visual C++ Runtime — không cần mạng khi cài.
           - **PentaKuru Full** (`PentaKuru-Full-*`): Đầy đủ tất cả tính năng, bao gồm tích hợp **Office / LibreOffice** (Writer, Impress, Calc với AI biên soạn nội dung, tiêu đề, bố cục).
           - **PentaKuru Lite** (`PentaKuru-Lite-*`): Phiên bản gọn nhẹ **không có LibreOffice/Office**, giữ nguyên toàn bộ các tính năng còn lại (Ghi chú & Kanban, Tìm kiếm nhanh, Chat AI, Edge TTS theo chunk, Sửa chính tả, Sally dịch cuộc họp, Penta Music, Penta Clip, Đồng bộ đồng hồ).
 

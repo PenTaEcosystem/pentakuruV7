@@ -1,2 +1,2 @@
 $ErrorActionPreference = 'Stop'
-& (Join-Path $PSScriptRoot 'package-sally.ps1')
+& (Join-Path $PSScriptRoot 'package-sally.ps1') @args
